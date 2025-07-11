@@ -1,12 +1,8 @@
 // app/layout.tsx
-"use client"
-
-import React, { useState } from "react"
+import React from "react"
 import type { Metadata } from "next"
-import { createBrowserSupabaseClient } from "@supabase/auth-helpers-nextjs"
-import { SessionContextProvider } from "@supabase/auth-helpers-react"
-import { Toaster } from "@/components/ui/toaster"
 import "./globals.css"
+import { ClientProviders } from "@/components/ClientProviders"
 
 export const metadata: Metadata = {
   title: "PlanInsta Dashboard - AI Business Plan Builder",
@@ -19,16 +15,13 @@ export default function RootLayout({
 }: {
   children: React.ReactNode
 }) {
-  // initialize a single Supabase client in the browser
-  const [supabaseClient] = useState(() => createBrowserSupabaseClient())
-
   return (
     <html lang="en">
       <body>
-        <SessionContextProvider supabaseClient={supabaseClient}>
+        {/* client-only providers */}
+        <ClientProviders>
           {children}
-        </SessionContextProvider>
-        <Toaster />
+        </ClientProviders>
       </body>
     </html>
   )

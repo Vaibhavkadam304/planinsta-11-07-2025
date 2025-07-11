@@ -32,7 +32,7 @@ export default function SignUpPage() {
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
 
-  // If already signed up & signed in, send to dashboard
+  // If already signed in, redirect to dashboard
   useEffect(() => {
     if (session) {
       router.replace("/dashboard")
@@ -41,7 +41,9 @@ export default function SignUpPage() {
 
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
-    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }))
+    if (errors[field]) {
+      setErrors((prev) => ({ ...prev, [field]: "" }))
+    }
   }
 
   const validateForm = () => {
@@ -78,30 +80,49 @@ export default function SignUpPage() {
     if (!validateForm()) return
 
     setIsLoading(true)
-    const { data, error } = await supabase.auth.signUp({
-        email: formData.email,
-        password: formData.password,
-        options: {
-          data: { full_name: formData.fullName },
-        },
-      });
 
+    // 1️⃣ Sign up via Supabase Auth
+    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+      email: formData.email,
+      password: formData.password,
+      options: {
+        data: { full_name: formData.fullName },
+      },
+    })
 
-    if (error) {
+    if (signUpError) {
       toast({
         title: "Error creating account",
-        description: error.message,
+        description: signUpError.message,
         variant: "destructive",
       })
-    } else {
-      toast({
-        title: "Account created!",
-        description: "Check your email to verify and then sign in.",
-      })
-      // Optionally redirect straight to signin or dashboard
-      router.replace("/auth/signin")
+      setIsLoading(false)
+      return
     }
 
+    // 2️⃣ If auth succeeded, insert into your public users table
+    const user = signUpData.user
+    if (user) {
+      const { error: userTableError } = await supabase
+        .from("users")
+        .insert({
+          id: user.id,
+          email: user.email,
+          full_name: formData.fullName,
+        })
+
+      if (userTableError) {
+        console.error("Failed to insert into users table:", userTableError)
+        // you can choose to inform the user or proceed
+      }
+    }
+
+    // 3️⃣ Notify & redirect
+    toast({
+      title: "Account created!",
+      description: "Please check your email to verify and then sign in.",
+    })
+    router.replace("/auth/signin")
     setIsLoading(false)
   }
 
@@ -140,13 +161,17 @@ export default function SignUpPage() {
                   type="text"
                   placeholder="Enter your full name"
                   value={formData.fullName}
-                  onChange={(e) => handleInputChange("fullName", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("fullName", e.target.value)
+                  }
                   className={`pl-10 rounded-2xl input-focus h-12 ${
                     errors.fullName ? "border-red-500 focus:border-red-500" : ""
                   }`}
                 />
               </div>
-              {errors.fullName && <p className="text-red-500 text-sm mt-1">{errors.fullName}</p>}
+              {errors.fullName && (
+                <p className="text-red-500 text-sm mt-1">{errors.fullName}</p>
+              )}
             </div>
 
             {/* Email */}
@@ -167,7 +192,9 @@ export default function SignUpPage() {
                   }`}
                 />
               </div>
-              {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
+              {errors.email && (
+                <p className="text-red-500 text-sm mt-1">{errors.email}</p>
+              )}
             </div>
 
             {/* Password */}
@@ -182,7 +209,9 @@ export default function SignUpPage() {
                   type={showPassword ? "text" : "password"}
                   placeholder="Create a strong password"
                   value={formData.password}
-                  onChange={(e) => handleInputChange("password", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("password", e.target.value)
+                  }
                   className={`pl-10 pr-10 rounded-2xl input-focus h-12 ${
                     errors.password ? "border-red-500 focus:border-red-500" : ""
                   }`}
@@ -192,15 +221,24 @@ export default function SignUpPage() {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                 </button>
               </div>
-              {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
+              {errors.password && (
+                <p className="text-red-500 text-sm mt-1">{errors.password}</p>
+              )}
             </div>
 
             {/* Confirm Password */}
             <div className="space-y-2">
-              <Label htmlFor="confirmPassword" className="text-gray-700 font-medium">
+              <Label
+                htmlFor="confirmPassword"
+                className="text-gray-700 font-medium"
+              >
                 Confirm Password
               </Label>
               <div className="relative">
@@ -214,12 +252,16 @@ export default function SignUpPage() {
                     handleInputChange("confirmPassword", e.target.value)
                   }
                   className={`pl-10 pr-10 rounded-2xl input-focus h-12 ${
-                    errors.confirmPassword ? "border-red-500 focus:border-red-500" : ""
+                    errors.confirmPassword
+                      ? "border-red-500 focus:border-red-500"
+                      : ""
                   }`}
                 />
                 <button
                   type="button"
-                  onClick={() => setShowConfirmPassword(!showConfirmPassword)}
+                  onClick={() =>
+                    setShowConfirmPassword(!showConfirmPassword)
+                  }
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
                   {showConfirmPassword ? (
@@ -230,7 +272,9 @@ export default function SignUpPage() {
                 </button>
               </div>
               {errors.confirmPassword && (
-                <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>
+                <p className="text-red-500 text-sm mt-1">
+                  {errors.confirmPassword}
+                </p>
               )}
             </div>
 
@@ -245,7 +289,10 @@ export default function SignUpPage() {
                   }
                   className="mt-1"
                 />
-                <Label htmlFor="agreeToTerms" className="text-sm text-gray-700 leading-relaxed">
+                <Label
+                  htmlFor="agreeToTerms"
+                  className="text-sm text-gray-700 leading-relaxed"
+                >
                   I agree to the{" "}
                   <Link
                     href="/terms"
@@ -263,7 +310,9 @@ export default function SignUpPage() {
                 </Label>
               </div>
               {errors.agreeToTerms && (
-                <p className="text-red-500 text-sm mt-1">{errors.agreeToTerms}</p>
+                <p className="text-red-500 text-sm mt-1">
+                  {errors.agreeToTerms}
+                </p>
               )}
             </div>
 

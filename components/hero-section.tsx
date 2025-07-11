@@ -4,20 +4,20 @@ import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Play } from "lucide-react"
 import { LeadCaptureModal } from "./lead-capture-modal"
-import { useAuth } from "@/contexts/auth-context"
+import { useSession } from "@supabase/auth-helpers-react"
 import { useRouter } from "next/navigation"
 
 export function HeroSection() {
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false)
-  const { user } = useAuth()
+  const session = useSession()
   const router = useRouter()
-
 
   return (
     <>
       <section className="pt-20 lg:pt-32 pb-16 lg:pb-24 px-4 sm:px-6 lg:px-8 bg-gradient-to-br from-orange-50 to-red-50">
         <div className="max-w-7xl mx-auto">
           <div className="grid lg:grid-cols-2 gap-12 lg:gap-16 items-center">
+
             {/* Left Content */}
             <div className="text-center lg:text-left">
               <h1 className="text-4xl sm:text-5xl lg:text-6xl font-bold text-gray-900 leading-tight mb-6 animate-fade-in-up">
@@ -33,18 +33,16 @@ export function HeroSection() {
               {/* CTA Buttons */}
               <div className="flex flex-col sm:flex-row gap-4 justify-center lg:justify-start animate-fade-in-up animate-delay-200">
                 <Button
-                    onClick={() => {
-                      if (!user) {
-                        // not signed in → go to login
-                        router.push("/auth/signin")
-                      } else {
-                        // signed in → open the lead modal
-                        setIsLeadModalOpen(true)
-                      }
-                    }}
-                    className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-8 py-4 text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
-                  >
-                    Create Your Plan
+                  onClick={() => {
+                    if (!session) {
+                      router.push("/auth/signin")
+                    } else {
+                      setIsLeadModalOpen(true)
+                    }
+                  }}
+                  className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-8 py-4 text-lg font-semibold transition-all duration-300 transform hover:scale-105 shadow-lg hover:shadow-xl"
+                >
+                  Create Your Plan
                 </Button>
                 <Button
                   variant="outline"
@@ -77,7 +75,6 @@ export function HeroSection() {
                 </div>
               </div>
 
-              {/* Floating Elements */}
               <div className="absolute -top-4 -right-4 bg-orange-500 text-white rounded-2xl px-4 py-2 text-sm font-semibold shadow-lg animate-bounce">
                 15 min setup
               </div>
@@ -85,6 +82,7 @@ export function HeroSection() {
                 Investor-ready
               </div>
             </div>
+
           </div>
         </div>
       </section>

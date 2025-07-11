@@ -1,27 +1,31 @@
+// components/auth/protected-route.tsx
 "use client"
 
-import type React from "react"
-
-import { useAuth } from "@/contexts/auth-context"
+import React, { ReactNode, useEffect } from "react"
+import { useSession } from "@supabase/auth-helpers-react"
 import { useRouter } from "next/navigation"
-import { useEffect } from "react"
 
 interface ProtectedRouteProps {
-  children: React.ReactNode
+  children: ReactNode
   redirectTo?: string
 }
 
-export function ProtectedRoute({ children, redirectTo = "/auth/signin" }: ProtectedRouteProps) {
-  const { user, loading } = useAuth()
+export function ProtectedRoute({
+  children,
+  redirectTo = "/auth/signin",
+}: ProtectedRouteProps) {
+  const session = useSession()
   const router = useRouter()
 
+  // As soon as we know there is no session, redirect
   useEffect(() => {
-    if (!loading && !user) {
-      router.push(redirectTo)
+    if (session === null) {
+      router.replace(redirectTo)
     }
-  }, [user, loading, router, redirectTo])
+  }, [session, redirectTo, router])
 
-  if (loading) {
+  // While loading (undefined), show a spinner
+  if (session === undefined) {
     return (
       <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
@@ -32,9 +36,11 @@ export function ProtectedRoute({ children, redirectTo = "/auth/signin" }: Protec
     )
   }
 
-  if (!user) {
+  // If signed out, render nothing (we already redirected)
+  if (session === null) {
     return null
   }
 
+  // If we have a session, render the protected content
   return <>{children}</>
 }
