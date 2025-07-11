@@ -1,60 +1,64 @@
 "use client"
 
-import type React from "react"
-
-import { Button } from "@/components/ui/button"
-import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form"
+import React, { useState } from "react"
+import { useSupabaseClient } from "@supabase/auth-helpers-react"
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+} from "@/components/ui/form"
 import { Input } from "@/components/ui/input"
-import { useToast } from "@/components/ui/use-toast"
+import { Button } from "@/components/ui/button"
 import { zodResolver } from "@hookform/resolvers/zod"
-import { useState } from "react"
 import { useForm } from "react-hook-form"
 import * as z from "zod"
-import { useAuth } from "@/contexts/auth-context"
+import { useToast } from "@/components/ui/use-toast"
+
 
 const formSchema = z.object({
   email: z.string().email({ message: "Please enter a valid email address." }),
 })
 
 export default function ForgotPasswordPage() {
+  const supabase = useSupabaseClient()
   const [isLoading, setIsLoading] = useState(false)
   const [emailSent, setEmailSent] = useState(false)
   const { toast } = useToast()
-  const { resetPassword } = useAuth()
 
   const form = useForm<z.infer<typeof formSchema>>({
     resolver: zodResolver(formSchema),
-    defaultValues: {
-      email: "",
-    },
+    defaultValues: { email: "" },
   })
 
-  const [formData, setFormData] = useState({
-    email: "",
-  })
+  const [formData, setFormData] = useState({ email: "" })
 
   const validateForm = () => {
+    form.trigger()
     try {
-      form.trigger()
       formSchema.parse(formData)
       return true
-    } catch (error: any) {
+    } catch {
       return false
     }
   }
 
   const handleChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value })
+    setFormData({ email: e.target.value })
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!validateForm()) return
 
     setIsLoading(true)
 
-    const { error } = await resetPassword(formData.email)
+    // ❗️ Swapped to the new helper:
+    const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
+      redirectTo: `${window.location.origin}/auth/signin`,
+    })
 
     if (error) {
       toast({
@@ -65,7 +69,7 @@ export default function ForgotPasswordPage() {
     } else {
       toast({
         title: "Reset email sent!",
-        description: "Please check your email for password reset instructions.",
+        description: "Please check your inbox for instructions.",
       })
       setEmailSent(true)
     }
@@ -76,10 +80,14 @@ export default function ForgotPasswordPage() {
   return (
     <div className="flex flex-col items-center justify-center h-screen">
       <div className="w-full max-w-md p-6 bg-white rounded-md shadow-md">
-        <h1 className="text-3xl font-semibold text-center text-gray-800 mb-6">Forgot Password</h1>
+        <h1 className="text-3xl font-semibold text-center text-gray-800 mb-6">
+          Forgot Password
+        </h1>
 
         {emailSent ? (
-          <div className="text-green-500 text-center">Password reset email sent! Please check your inbox.</div>
+          <div className="text-green-500 text-center">
+            Password reset email sent! Please check your inbox.
+          </div>
         ) : (
           <Form {...form}>
             <form onSubmit={handleSubmit} className="space-y-4">
@@ -110,6 +118,13 @@ export default function ForgotPasswordPage() {
             </form>
           </Form>
         )}
+
+        <p className="mt-4 text-center text-sm text-gray-600">
+          Remembered your password?{" "}
+          <Link href="/auth/signin" className="text-orange-600 hover:underline">
+            Sign In
+          </Link>
+        </p>
       </div>
     </div>
   )

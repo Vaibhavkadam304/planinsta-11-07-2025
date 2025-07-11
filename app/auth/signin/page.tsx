@@ -1,10 +1,9 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import React, { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -12,22 +11,28 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AuthLayout } from "@/components/auth-layout"
 import { Eye, EyeOff, Mail, Lock } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useAuth } from "@/contexts/auth-context"
+import { useSupabaseClient, useSession } from "@supabase/auth-helpers-react"
 
 export default function SignInPage() {
-  const [formData, setFormData] = useState({
-    email: "",
-    password: "",
-  })
+  const supabase = useSupabaseClient()
+  const session = useSession()
+  const router = useRouter()
+  const { toast } = useToast()
+
+  const [formData, setFormData] = useState({ email: "", password: "" })
   const [showPassword, setShowPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const { toast } = useToast()
-  const { signIn } = useAuth()
+
+  // Redirect if already signed in
+  useEffect(() => {
+    if (session) {
+      router.replace("/dashboard")
+    }
+  }, [session, router])
 
   const handleInputChange = (field: string, value: string) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
-    // Clear error when user starts typing
     if (errors[field]) {
       setErrors((prev) => ({ ...prev, [field]: "" }))
     }
@@ -35,29 +40,27 @@ export default function SignInPage() {
 
   const validateForm = () => {
     const newErrors: Record<string, string> = {}
-
     if (!formData.email) {
       newErrors.email = "Email is required"
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = "Please enter a valid email"
     }
-
     if (!formData.password) {
       newErrors.password = "Password is required"
     }
-
     setErrors(newErrors)
     return Object.keys(newErrors).length === 0
   }
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!validateForm()) return
 
     setIsLoading(true)
-
-    const { error } = await signIn(formData.email, formData.password)
+    const { error } = await supabase.auth.signInWithPassword({
+      email: formData.email,
+      password: formData.password,
+    })
 
     if (error) {
       toast({
@@ -70,8 +73,8 @@ export default function SignInPage() {
         title: "Welcome back!",
         description: "You have been successfully signed in.",
       })
+      router.replace("/dashboard")
     }
-
     setIsLoading(false)
   }
 
@@ -88,13 +91,15 @@ export default function SignInPage() {
               className="h-8 w-auto mx-auto"
             />
           </div>
-          <CardTitle className="text-2xl lg:text-3xl font-bold text-gray-900">Welcome back</CardTitle>
+          <CardTitle className="text-2xl lg:text-3xl font-bold text-gray-900">
+            Welcome back
+          </CardTitle>
           <p className="text-gray-600 mt-2">Sign in to your PlanInsta account</p>
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
           <form onSubmit={handleSubmit} className="space-y-6">
-            {/* Email Field */}
+            {/* Email */}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-gray-700 font-medium">
                 Email Address
@@ -115,7 +120,7 @@ export default function SignInPage() {
               {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
             </div>
 
-            {/* Password Field */}
+            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password" className="text-gray-700 font-medium">
                 Password
@@ -143,7 +148,7 @@ export default function SignInPage() {
               {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
             </div>
 
-            {/* Forgot Password Link */}
+            {/* Forgot Password */}
             <div className="text-right">
               <Link
                 href="/auth/forgot-password"
@@ -153,7 +158,7 @@ export default function SignInPage() {
               </Link>
             </div>
 
-            {/* Submit Button */}
+            {/* Submit */}
             <Button
               type="submit"
               disabled={isLoading}

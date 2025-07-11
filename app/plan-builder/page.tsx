@@ -1,6 +1,6 @@
 "use client"
 
-import { useState } from "react"
+import { useState, useEffect } from "react"
 import { PlanBuilderTopBar } from "@/components/plan-builder/top-bar"
 import { QuizInterface } from "@/components/plan-builder/quiz-interface"
 import { GenerationScreen } from "@/components/plan-builder/generation-screen"
@@ -9,6 +9,9 @@ import { ChatEditModal } from "@/components/plan-builder/chat-edit-modal"
 import { UnsavedChangesModal } from "@/components/plan-builder/unsaved-changes-modal"
 import { useToast } from "@/hooks/use-toast"
 import { generateBusinessPlan } from "@/app/actions/generate-plan"
+import { useSession } from "@supabase/auth-helpers-react"
+import { useRouter } from "next/navigation"
+
 
 /* -------------------------------------------------------------------------- */
 /*                               Local Types                                  */
@@ -82,6 +85,20 @@ type PlanBuilderStage = "quiz" | "generating" | "output"
 /* -------------------------------------------------------------------------- */
 
 export default function PlanBuilderClient() {
+  
+  const session = useSession();
+  const router = useRouter();
+
+  // Redirect to sign-in if there’s no active session
+  useEffect(() => {
+    if (session === null) {
+      router.replace("/auth/signin");
+    }
+  }, [session, router]);
+
+  // While session is loading (undefined), or if signed out (null), render nothing
+  if (session === undefined || session === null) return null;
+
   const [planTitle, setPlanTitle] = useState("Untitled Business Plan")
   const [stage, setStage] = useState<PlanBuilderStage>("quiz")
   const [planData, setPlanData] = useState<BusinessPlanData>({

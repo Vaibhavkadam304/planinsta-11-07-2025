@@ -1,10 +1,9 @@
 "use client"
 
-import type React from "react"
-
-import { useState } from "react"
+import React, { useState, useEffect } from "react"
 import Link from "next/link"
 import Image from "next/image"
+import { useRouter } from "next/navigation"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -13,9 +12,14 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { AuthLayout } from "@/components/auth-layout"
 import { Eye, EyeOff, Mail, Lock, User } from "lucide-react"
 import { useToast } from "@/hooks/use-toast"
-import { useAuth } from "@/contexts/auth-context"
+import { useSupabaseClient, useSession } from "@supabase/auth-helpers-react"
 
 export default function SignUpPage() {
+  const supabase = useSupabaseClient()
+  const session = useSession()
+  const router = useRouter()
+  const { toast } = useToast()
+
   const [formData, setFormData] = useState({
     fullName: "",
     email: "",
@@ -27,15 +31,17 @@ export default function SignUpPage() {
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
   const [isLoading, setIsLoading] = useState(false)
   const [errors, setErrors] = useState<Record<string, string>>({})
-  const { toast } = useToast()
-  const { signUp } = useAuth()
+
+  // If already signed up & signed in, send to dashboard
+  useEffect(() => {
+    if (session) {
+      router.replace("/dashboard")
+    }
+  }, [session, router])
 
   const handleInputChange = (field: string, value: string | boolean) => {
     setFormData((prev) => ({ ...prev, [field]: value }))
-    // Clear error when user starts typing
-    if (errors[field]) {
-      setErrors((prev) => ({ ...prev, [field]: "" }))
-    }
+    if (errors[field]) setErrors((prev) => ({ ...prev, [field]: "" }))
   }
 
   const validateForm = () => {
@@ -44,25 +50,21 @@ export default function SignUpPage() {
     if (!formData.fullName.trim()) {
       newErrors.fullName = "Full name is required"
     }
-
     if (!formData.email) {
       newErrors.email = "Email is required"
     } else if (!/\S+@\S+\.\S+/.test(formData.email)) {
       newErrors.email = "Please enter a valid email"
     }
-
     if (!formData.password) {
       newErrors.password = "Password is required"
     } else if (formData.password.length < 8) {
       newErrors.password = "Password must be at least 8 characters"
     }
-
     if (!formData.confirmPassword) {
       newErrors.confirmPassword = "Please confirm your password"
     } else if (formData.password !== formData.confirmPassword) {
       newErrors.confirmPassword = "Passwords do not match"
     }
-
     if (!formData.agreeToTerms) {
       newErrors.agreeToTerms = "You must agree to the terms and conditions"
     }
@@ -73,12 +75,17 @@ export default function SignUpPage() {
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
-
     if (!validateForm()) return
 
     setIsLoading(true)
+    const { data, error } = await supabase.auth.signUp({
+        email: formData.email,
+        password: formData.password,
+        options: {
+          data: { full_name: formData.fullName },
+        },
+      });
 
-    const { error } = await signUp(formData.email, formData.password, formData.fullName)
 
     if (error) {
       toast({
@@ -88,9 +95,11 @@ export default function SignUpPage() {
       })
     } else {
       toast({
-        title: "Account created successfully!",
-        description: "Please check your email to verify your account.",
+        title: "Account created!",
+        description: "Check your email to verify and then sign in.",
       })
+      // Optionally redirect straight to signin or dashboard
+      router.replace("/auth/signin")
     }
 
     setIsLoading(false)
@@ -109,13 +118,17 @@ export default function SignUpPage() {
               className="h-8 w-auto mx-auto"
             />
           </div>
-          <CardTitle className="text-2xl lg:text-3xl font-bold text-gray-900">Create your account</CardTitle>
-          <p className="text-gray-600 mt-2">Start building professional business plans today</p>
+          <CardTitle className="text-2xl lg:text-3xl font-bold text-gray-900">
+            Create your account
+          </CardTitle>
+          <p className="text-gray-600 mt-2">
+            Start building professional business plans today
+          </p>
         </CardHeader>
 
         <CardContent className="px-8 pb-8">
           <form onSubmit={handleSubmit} className="space-y-5">
-            {/* Full Name Field */}
+            {/* Full Name */}
             <div className="space-y-2">
               <Label htmlFor="fullName" className="text-gray-700 font-medium">
                 Full Name
@@ -136,7 +149,7 @@ export default function SignUpPage() {
               {errors.fullName && <p className="text-red-500 text-sm mt-1">{errors.fullName}</p>}
             </div>
 
-            {/* Email Field */}
+            {/* Email */}
             <div className="space-y-2">
               <Label htmlFor="email" className="text-gray-700 font-medium">
                 Email Address
@@ -157,7 +170,7 @@ export default function SignUpPage() {
               {errors.email && <p className="text-red-500 text-sm mt-1">{errors.email}</p>}
             </div>
 
-            {/* Password Field */}
+            {/* Password */}
             <div className="space-y-2">
               <Label htmlFor="password" className="text-gray-700 font-medium">
                 Password
@@ -185,7 +198,7 @@ export default function SignUpPage() {
               {errors.password && <p className="text-red-500 text-sm mt-1">{errors.password}</p>}
             </div>
 
-            {/* Confirm Password Field */}
+            {/* Confirm Password */}
             <div className="space-y-2">
               <Label htmlFor="confirmPassword" className="text-gray-700 font-medium">
                 Confirm Password
@@ -197,7 +210,9 @@ export default function SignUpPage() {
                   type={showConfirmPassword ? "text" : "password"}
                   placeholder="Confirm your password"
                   value={formData.confirmPassword}
-                  onChange={(e) => handleInputChange("confirmPassword", e.target.value)}
+                  onChange={(e) =>
+                    handleInputChange("confirmPassword", e.target.value)
+                  }
                   className={`pl-10 pr-10 rounded-2xl input-focus h-12 ${
                     errors.confirmPassword ? "border-red-500 focus:border-red-500" : ""
                   }`}
@@ -207,36 +222,52 @@ export default function SignUpPage() {
                   onClick={() => setShowConfirmPassword(!showConfirmPassword)}
                   className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600"
                 >
-                  {showConfirmPassword ? <EyeOff className="w-5 h-5" /> : <Eye className="w-5 h-5" />}
+                  {showConfirmPassword ? (
+                    <EyeOff className="w-5 h-5" />
+                  ) : (
+                    <Eye className="w-5 h-5" />
+                  )}
                 </button>
               </div>
-              {errors.confirmPassword && <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>}
+              {errors.confirmPassword && (
+                <p className="text-red-500 text-sm mt-1">{errors.confirmPassword}</p>
+              )}
             </div>
 
-            {/* Terms Checkbox */}
+            {/* Terms & Conditions */}
             <div className="space-y-2">
               <div className="flex items-start space-x-3">
                 <Checkbox
                   id="agreeToTerms"
                   checked={formData.agreeToTerms}
-                  onCheckedChange={(checked) => handleInputChange("agreeToTerms", checked as boolean)}
+                  onCheckedChange={(checked) =>
+                    handleInputChange("agreeToTerms", checked as boolean)
+                  }
                   className="mt-1"
                 />
                 <Label htmlFor="agreeToTerms" className="text-sm text-gray-700 leading-relaxed">
                   I agree to the{" "}
-                  <Link href="/terms" className="text-orange-600 hover:text-orange-700 font-medium">
+                  <Link
+                    href="/terms"
+                    className="text-orange-600 hover:text-orange-700 font-medium"
+                  >
                     Terms & Conditions
                   </Link>{" "}
                   and{" "}
-                  <Link href="/privacy" className="text-orange-600 hover:text-orange-700 font-medium">
+                  <Link
+                    href="/privacy"
+                    className="text-orange-600 hover:text-orange-700 font-medium"
+                  >
                     Privacy Policy
                   </Link>
                 </Label>
               </div>
-              {errors.agreeToTerms && <p className="text-red-500 text-sm mt-1">{errors.agreeToTerms}</p>}
+              {errors.agreeToTerms && (
+                <p className="text-red-500 text-sm mt-1">{errors.agreeToTerms}</p>
+              )}
             </div>
 
-            {/* Submit Button */}
+            {/* Submit */}
             <Button
               type="submit"
               disabled={isLoading}
@@ -245,7 +276,7 @@ export default function SignUpPage() {
               {isLoading ? "Creating Account..." : "Create Account"}
             </Button>
 
-            {/* Sign In Link */}
+            {/* Already have account */}
             <div className="text-center pt-4">
               <p className="text-gray-600">
                 Already have an account?{" "}
