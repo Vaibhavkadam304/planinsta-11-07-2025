@@ -8,9 +8,12 @@ import { PlanOutput } from "@/components/plan-builder/plan-output"
 import { ChatEditModal } from "@/components/plan-builder/chat-edit-modal"
 import { UnsavedChangesModal } from "@/components/plan-builder/unsaved-changes-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateBusinessPlan } from "@/app/actions/generate-plan"
+import { generateBusinessPlan, GenerateBusinessPlanResult } from "@/app/actions/generate-plan"
 import { useSession } from "@supabase/auth-helpers-react"
-import { useRouter } from "next/navigation"
+import { useRouter, useSearchParams } from "next/navigation"
+import { saveAs } from 'file-saver'
+import { Document, Packer, Paragraph, HeadingLevel } from 'docx'
+import ReactMarkdown from "react-markdown"
 
 
 /* -------------------------------------------------------------------------- */
@@ -67,16 +70,46 @@ export interface BusinessPlanData {
   notes: string
 }
 
+// export interface GeneratedPlan {
+//   executiveSummary: string
+//   marketAnalysis: string
+//   productStrategy: string
+//   marketingStrategy: string
+//   operationsStrategy: string
+//   financialProjections: string
+//   milestonesAndTraction: string
+//   additionalNotes: string
+// }
+// after
 export interface GeneratedPlan {
-  executiveSummary: string
-  marketAnalysis: string
-  productStrategy: string
-  marketingStrategy: string
-  operationsStrategy: string
+  executiveSummary: {
+    businessOverview: string
+    businessOrigins: string
+    competitiveAdvantage: string
+    financialSummary: string
+  }
+  situationAnalysis: {
+    industryOverview: string
+    keyMarketTrends: string
+  }
+  swotAnalysis: {
+    strengths: string
+    weaknesses: string
+    opportunities: string
+    threats: string
+  }
+  marketingPlan: {
+    businessObjectives: string
+    segmentationTargetingPositioning: string
+    marketingMix4Ps: string
+  }
+  serviceStrategy: string
+  operationsPlan: string
+  managementTeam: string
   financialProjections: string
-  milestonesAndTraction: string
-  additionalNotes: string
+  riskMitigation: string
 }
+
 
 type PlanBuilderStage = "quiz" | "generating" | "output"
 
@@ -86,22 +119,48 @@ type PlanBuilderStage = "quiz" | "generating" | "output"
 
 export default function PlanBuilderClient() {
   
-  const session = useSession();
-  const router = useRouter();
+  const session = useSession()
+  const router = useRouter()
+  const searchParams = useSearchParams()
+  const { toast } = useToast()
 
-  // Redirect to sign-in if there’s no active session
-  useEffect(() => {
-    if (session === null) {
-      router.replace("/auth/signin");
-    }
-  }, [session, router]);
+  // ─── PAY‑GATE EFFECT ───
+  // After quiz data is in sessionStorage but before ?paid=true, 
+  // decide whether to skip to generate or go to payment.
+  // useEffect(() => {
+  //     // 1️⃣ only run once they’ve answered the quiz
+  //     const raw = sessionStorage.getItem("planData")
+  //     if (!raw) return
 
-  // While session is loading (undefined), or if signed out (null), render nothing
-  if (session === undefined || session === null) return null;
+  //     // 2️⃣ if they’re returning from payment, don’t re‑gate
+  //     if (searchParams.get("paid") === "true") return
 
-  const [planTitle, setPlanTitle] = useState("Untitled Business Plan")
-  const [stage, setStage] = useState<PlanBuilderStage>("quiz")
-  const [planData, setPlanData] = useState<BusinessPlanData>({
+  //     // 3️⃣ otherwise check if they've already paid
+  //     fetch("/api/razorpay/record-payment", {
+  //       method:      "GET",
+  //       credentials: "include",    // ← add this line
+  //     })
+  //       .then(r => r.json())
+  //       .then(({ paid }) => {
+  //         if (paid) {
+  //           // already paid → skip payment and generate
+  //           router.replace("/plan-builder?paid=true")
+  //         } else {
+  //           // not paid → send to payment page
+  //           router.replace("/plan-builder/payment")
+  //         }
+  //       })
+  //       .catch(() => {
+  //         // network/auth error → stay on quiz
+  //       })
+  // }, [router, searchParams])
+
+
+  const [hasRedirectedForPayment, setHasRedirectedForPayment] = useState(false)
+  // const [planTitle,          setPlanTitle]         = useState("Untitled Business Plan")
+  const [planId,             setPlanId]            = useState<string | null>(null)
+  const [stage,              setStage]             = useState<PlanBuilderStage>("quiz")
+  const [planData,           setPlanData]          = useState<BusinessPlanData>({
     businessName: "",
     description: "",
     businessModel: "",
@@ -133,43 +192,59 @@ export default function PlanBuilderClient() {
     upcomingMilestone: "",
     notes: "",
   })
+  const [generatedPlan,      setGeneratedPlan]     = useState<GeneratedPlan | null>(null)
+  const [editingSection,     setEditingSection]    = useState<string | null>(null)
+  const [showUnsavedModal,   setShowUnsavedModal]  = useState(false)
+  const [hasUnsavedChanges,  setHasUnsavedChanges] = useState(false)
 
-  const [generatedPlan, setGeneratedPlan] = useState<GeneratedPlan | null>(null)
-  const [editingSection, setEditingSection] = useState<string | null>(null)
-  const [showUnsavedModal, setShowUnsavedModal] = useState(false)
-  const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false)
-  const { toast } = useToast()
+  // ───── PAYMENT‐RETURN EFFECT ─────
+  useEffect(() => {
+    if (searchParams.get("paid") === "true" && !hasRedirectedForPayment) {
+      setHasRedirectedForPayment(true);
 
-  /* ------------------------------ Handlers -------------------------------- */
-  console.log("🔧 PlanBuilderPage mounted, initial planData:", planData)
-  const handleDataChange = (newData: Partial<BusinessPlanData>) => {
-    console.log("✏️ User updated:", newData)
-    setPlanData((prev) => ({ ...prev, ...newData }))
-    setHasUnsavedChanges(true)
-  }
+      const raw = sessionStorage.getItem("planData");
+      if (!raw) return;
 
-  const handleGeneratePlan = async () => {
-  // 1️⃣ Kick off loading state
-    console.log("⏳ Stage → generating")
+      const restored = JSON.parse(raw) as BusinessPlanData;
+
+      // 1) Restore UI state
+      setPlanData(restored);
+      // 2) Kick off generation with the right businessName
+      _reallyGeneratePlan(restored);
+    }
+  }, [searchParams, hasRedirectedForPayment]);
+
+
+
+  // ─── SESSION GUARD EFFECT ───
+  useEffect(() => {
+    if (session === null) router.replace("/auth/signin")
+  }, [session, router])
+
+  // ─────── EARLY RETURN ───────
+  if (session === undefined || session === null) return null
+
+  // ─────── HELPERS & HANDLERS ───────
+  async function _reallyGeneratePlan(overrideData?: BusinessPlanData) {
+    // If overrideData is passed, use it; otherwise fall back to current state + title
+    const dataToUse = overrideData ?? planData
+
     setStage("generating")
-
     try {
-      // 2️⃣ Log the payload
-      console.log("▶️ Sending planData to server action:", planData)
+      console.log("▶️ Sending planData to server action:", dataToUse)
+      const result = await generateBusinessPlan(dataToUse)
 
-      // 3️⃣ Call your Server Action
-      const result = await generateBusinessPlan(planData)
+      if (!result.success) {
+        throw new Error(result.error)
+      }
 
-      // 4️⃣ Inspect the result
-      console.log("◀️ Server action result:", result)
-      if (!result.success) throw new Error(result.error)
-
-      // 5️⃣ Push into state & UI
+      // At this point TS knows result.success === true, so planId must exist
+      setPlanId(result.planId)
       setGeneratedPlan(result.plan)
-      console.log("✅ Stage → output")
+      setGeneratedPlan(result.plan)
+
       setStage("output")
       setHasUnsavedChanges(false)
-
       toast({
         title: "Plan Generated Successfully!",
         description: "Your business plan is ready for review and download.",
@@ -184,6 +259,111 @@ export default function PlanBuilderClient() {
       })
     }
   }
+
+
+  /* ------------------------------ Handlers -------------------------------- */
+  console.log("🔧 PlanBuilderPage mounted, initial planData:", planData)
+  async function handleGeneratePlan() {
+    // 1️⃣ stash quiz answers so we can restore after payment
+    sessionStorage.setItem("planData", JSON.stringify(planData))
+
+    try {
+      // 2️⃣ ask the server if they’ve already paid
+      const res = await fetch("/api/razorpay/record-payment", {
+        method:      "GET",
+        credentials: "include",
+      })
+      if (!res.ok) throw new Error("Failed to verify payment")
+
+      const { paid } = await res.json()
+
+      // 3️⃣ branch on payment status
+      if (paid) {
+        // already paid → skip checkout, trigger generation
+        router.replace("/plan-builder?paid=true")
+      } else {
+        // not paid → send to checkout
+        router.replace("/plan-builder/payment")
+      }
+    } catch (err: any) {
+      console.error("Payment‑status check failed:", err)
+      toast({
+        variant: "destructive",
+        title: "Error",
+        description: "Could not verify payment status. Please try again.",
+      })
+    }
+  }
+
+
+
+  // ←────────────────── ADD YOUR SAVE HANDLER ───────────────────
+  async function handleSavePlan() {
+    if (!planId) return toast({ variant: "destructive", title: "No plan to save." });
+
+    const res = await fetch(`/api/plans/${planId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(planData),
+    });
+
+    const { success, error } = await res.json();
+    if (success) {
+      toast({ title: "Plan updated!" });
+      setHasUnsavedChanges(false);
+    } else {
+      toast({ variant: "destructive", title: "Save failed", description: error });
+    }
+  }
+
+
+ function handleDataChange(newData: Partial<BusinessPlanData>) {
+    setPlanData(prev => {
+      const updated = { ...prev, ...newData }
+      sessionStorage.setItem("planData", JSON.stringify(updated))
+      return updated
+    })
+  }
+
+  // const handleGeneratePlan = async () => {
+  // // 1️⃣ Kick off loading state
+  //   console.log("⏳ Stage → generating")
+  //   setStage("generating")
+
+  //   try {
+  //     // 2️⃣ Log the payload
+  //     console.log("▶️ Sending planData to server action:", planData)
+
+  //     // 3️⃣ Call your Server Action
+  //     const result = await generateBusinessPlan(planData)
+
+  //     // 4️⃣ Inspect the result
+  //     console.log("◀️ Server action result:", result)
+  //     if (!result.success) throw new Error(result.error)
+
+  //     // 5️⃣ Push into state & UI
+  //     setGeneratedPlan(result.plan)
+  //     console.log("✅ Stage → output")
+  //     setStage("output")
+  //     setHasUnsavedChanges(false)
+
+  //     toast({
+  //       title: "Plan Generated Successfully!",
+  //       description: "Your business plan is ready for review and download.",
+  //     })
+  //   } catch (err: any) {
+  //     console.error("❌ generateBusinessPlan failed:", err)
+  //     setStage("quiz")
+  //     toast({
+  //       variant: "destructive",
+  //       title: "Plan Generation Failed",
+  //       description: err.message,
+  //     })
+  //   }
+  // }
+
+  // === New handler: save answers & send to payment page ===
+  
 
 
   const handleSectionEdit = (sectionKey: string, newContent: string) => {
@@ -204,49 +384,173 @@ export default function PlanBuilderClient() {
     }
   }
 
-  const handleDownload = () => {
-    toast({
-      title: "Downloading Plan...",
-      description: "Your business plan is being prepared as a DOCX file.",
-    })
-    // TODO: Implement DOCX download logic
+  // Helper to Upper-case the first letter of each word
+  function capitalizeWords(str: string): string {
+    return str.replace(/\b\w/g, (char) => char.toUpperCase())
   }
 
-  const handleBackToDashboard = () => {
-    if (hasUnsavedChanges && stage === "quiz") {
-      setShowUnsavedModal(true)
-    } else {
-      window.history.back()
+  const handleDownload = async () => {
+    // 1) Guard: ensure we have a plan
+    if (!generatedPlan) {
+      console.error('🚫 No plan available to download')
+      return
     }
+    console.log('🔷 Download clicked (top-bar)', generatedPlan)
+
+    // Determine the title text and filename base
+    const titleText = planData.businessName || 'Business Plan'
+    const displayTitle = capitalizeWords(titleText)
+    const fileBase  = titleText
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-]/g, '')
+
+    // 2) Build the .docx document
+    // pull out our nested plan shape
+    const {
+      executiveSummary,
+      situationAnalysis,
+      swotAnalysis,
+      marketingPlan,
+      serviceStrategy,
+      operationsPlan,
+      managementTeam,
+      financialProjections,
+      riskMitigation,
+    } = generatedPlan
+
+    const doc = new Document({
+      sections: [
+        {
+          children: [
+            // Title
+            new Paragraph({
+              text: displayTitle,
+              heading: HeadingLevel.TITLE,
+            }),
+
+            // 1. Executive Summary
+            new Paragraph({ text: 'Executive Summary', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph({ text: 'Business Overview', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(executiveSummary.businessOverview),
+            new Paragraph({ text: 'Business Origins', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(executiveSummary.businessOrigins),
+            new Paragraph({ text: 'Competitive Advantage', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(executiveSummary.competitiveAdvantage),
+            new Paragraph({ text: 'Financial Summary', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(executiveSummary.financialSummary),
+
+            // 2. Situation Analysis
+            new Paragraph({ text: 'Situation Analysis', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph({ text: 'Industry Overview', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(situationAnalysis.industryOverview),
+            new Paragraph({ text: 'Key Market Trends', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(situationAnalysis.keyMarketTrends),
+
+            // 3. SWOT Analysis
+            new Paragraph({ text: 'SWOT Analysis', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph({ text: 'Strengths', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(swotAnalysis.strengths),
+            new Paragraph({ text: 'Weaknesses', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(swotAnalysis.weaknesses),
+            new Paragraph({ text: 'Opportunities', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(swotAnalysis.opportunities),
+            new Paragraph({ text: 'Threats', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(swotAnalysis.threats),
+
+            // 4. Marketing Plan
+            new Paragraph({ text: 'Marketing Plan', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph({ text: 'Business Objectives', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(marketingPlan.businessObjectives),
+            new Paragraph({ text: 'Segmentation, Targeting & Positioning', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(marketingPlan.segmentationTargetingPositioning),
+            new Paragraph({ text: '4Ps (Product, Price, Place, Promotion)', heading: HeadingLevel.HEADING_2 }),
+            new Paragraph(marketingPlan.marketingMix4Ps),
+
+            // 5. Service Strategy
+            new Paragraph({ text: 'Service Strategy', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph(serviceStrategy),
+
+            // 6. Operations Plan
+            new Paragraph({ text: 'Operations Plan', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph(operationsPlan),
+
+            // 7. Management Team
+            new Paragraph({ text: 'Management Team', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph(managementTeam),
+
+            // 8. Financial Projections
+            new Paragraph({ text: 'Financial Projections', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph(financialProjections),
+
+            // 9. Risk & Mitigation
+            new Paragraph({ text: 'Risk & Mitigation', heading: HeadingLevel.HEADING_1 }),
+            new Paragraph(riskMitigation),
+          ],
+        },
+      ],
+    })
+
+    console.log('🔷 Document built')
+
+    // 3) Convert to a Blob
+    const blob = await Packer.toBlob(doc)
+    console.log('🔷 Blob created')
+
+    // 4) Trigger download in browser
+    saveAs(blob, `${titleText.toLowerCase().replace(/\s+/g,'-')}.docx`)
+    console.log('🔷 saveAs invoked')
   }
+
+
+
+const handleBackToDashboard = () => {
+  if (hasUnsavedChanges && stage === "quiz") {
+    setShowUnsavedModal(true)
+  } else {
+    router.push("/dashboard")    // or whatever your real dashboard path is
+  }
+}
+
+
+
+
 
   /* ----------------------------------------------------------------------- */
 
   return (
     <div className="min-h-screen bg-gray-50">
       <PlanBuilderTopBar
-        planTitle={planTitle}
-        onTitleChange={setPlanTitle}
-        stage={stage}
-        onDownload={stage === "output" ? handleDownload : undefined}
-        onBackToDashboard={handleBackToDashboard}
-      />
-
-      <div className="h-[calc(100vh-80px)]">
-        {stage === "quiz" && (
-          <QuizInterface data={planData} onChange={handleDataChange} onGeneratePlan={handleGeneratePlan} />
-        )}
+          planTitle={planData.businessName || "Untitled Business Plan"}
+          onTitleChange={(title) => {
+            setPlanData(prev => ({ ...prev, businessName: title }))
+            setHasUnsavedChanges(true)
+          }}
+          onSave={handleSavePlan}  
+          stage={stage}
+          onBackToDashboard={handleBackToDashboard}
+        />
+      <div className="h-[calc(100vh-80px)] overflow-y-auto">
+         {stage === "quiz" && (
+          <QuizInterface
+              data={planData}
+              onChange={handleDataChange}
+              onGeneratePlan={handleGeneratePlan}
+            />
+          )}
 
         {stage === "generating" && <GenerationScreen businessName={planData.businessName || "Your Business"} />}
 
         {stage === "output" && generatedPlan && (
-          <PlanOutput
-            planData={planData}
-            generatedPlan={generatedPlan}
-            onEditSection={setEditingSection}
-            onDownload={handleDownload}
-          />
-        )}
+            <>
+              <PlanOutput
+                planData={planData}
+                generatedPlan={generatedPlan}
+                onEditSection={setEditingSection}
+                onDownload={handleDownload}
+              />
+            </>
+          )}
       </div>
 
       {/* Chat Edit Modal */}

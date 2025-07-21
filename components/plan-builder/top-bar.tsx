@@ -14,6 +14,7 @@ interface PlanBuilderTopBarProps {
   stage: "quiz" | "generating" | "output"
   onDownload?: () => void
   onBackToDashboard: () => void
+  onSave?: () => void;            // ← add this
 }
 
 export function PlanBuilderTopBar({
@@ -22,6 +23,7 @@ export function PlanBuilderTopBar({
   stage,
   onDownload,
   onBackToDashboard,
+  onSave,
 }: PlanBuilderTopBarProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [tempTitle, setTempTitle] = useState(planTitle)
@@ -109,6 +111,16 @@ export function PlanBuilderTopBar({
             <ArrowLeft className="h-4 w-4 mr-2" />
             Back to Dashboard
           </Button>
+          <div className="flex space-x-2">
+              {stage === "output" && onSave && (
+                <button
+                  className="px-4 py-2 bg-blue-600 text-white rounded"
+                  onClick={onSave}
+                >
+                  Save
+                </button>
+              )}
+            </div>
         </div>
       </div>
     </header>

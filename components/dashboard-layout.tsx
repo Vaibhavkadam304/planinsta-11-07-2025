@@ -29,6 +29,7 @@ import {
   X,
   Bell,
   User,
+  CreditCard,          // ← add this
 } from "lucide-react"
 
 interface DashboardLayoutProps {
@@ -40,10 +41,16 @@ interface DashboardLayoutProps {
 const navigationItems = [
   { id: "dashboard", label: "Dashboard", icon: LayoutDashboard, href: "/dashboard" },
   { id: "plans",     label: "My Plans",  icon: FileText,        href: "/dashboard/plans" },
-  { id: "folders",   label: "Folders",   icon: FolderOpen,     href: "/dashboard/folders" },
+  // { id: "folders",   label: "Folders",   icon: FolderOpen,     href: "/dashboard/folders" },
   { id: "trash",     label: "Trash",     icon: Trash2,          href: "/dashboard/trash" },
   { id: "settings",  label: "Account Settings", icon: Settings, href: "/dashboard/settings" },
   { id: "help",      label: "Help & Support",    icon: HelpCircle, href: "/dashboard/help" },
+  {
+    id: "payments",
+    label: "Payment History",
+    icon: CreditCard,               // ← switch icon
+    href: "/payment-history",       // ← point to your new page
+  },
 ]
 
 export default function DashboardLayout({
@@ -194,7 +201,7 @@ export default function DashboardLayout({
             <p className="text-gray-600">
               {currentPage === "dashboard" && "Overview of your business plans and activity"}
               {currentPage === "plans" && "Manage and organize your business plans"}
-              {currentPage === "folders" && "Organize your plans into folders"}
+              {/* {currentPage === "folders" && "Organize your plans into folders"} */}
               {currentPage === "trash" && "Recover or permanently delete plans"}
               {currentPage === "settings" && "Manage your account preferences and security"}
               {currentPage === "help" && "Get help and support"}

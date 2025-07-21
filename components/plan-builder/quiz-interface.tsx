@@ -637,7 +637,7 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
           {isLastSection ? (
             <Button
               onClick={onGeneratePlan}
-              disabled={!canProceed}
+              // disabled={!canProceed}
               className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-8 py-3 font-semibold transition-all duration-300 transform hover:scale-105"
             >
               <Wand2 className="h-4 w-4 mr-2" />

@@ -69,6 +69,8 @@
 //   }
 // }
 // app/actions/generate-plan.ts
+
+
 "use server"
 
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
@@ -79,18 +81,46 @@ import { z } from "zod"
 import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient"
 
 export type GenerateBusinessPlanResult =
-  | { success: true; plan: GeneratedPlan }
+  | { success: true; plan: GeneratedPlan; planId: string }
   | { success: false; error: string }
 
+// const businessPlanSchema = z.object({
+//   executiveSummary:      z.string(),
+//   marketAnalysis:        z.string(),
+//   productStrategy:       z.string(),
+//   marketingStrategy:     z.string(),
+//   operationsStrategy:    z.string(),
+//   financialProjections:  z.string(),
+//   milestonesAndTraction: z.string(),
+//   additionalNotes:       z.string(),
+// })
 const businessPlanSchema = z.object({
-  executiveSummary:      z.string(),
-  marketAnalysis:        z.string(),
-  productStrategy:       z.string(),
-  marketingStrategy:     z.string(),
-  operationsStrategy:    z.string(),
-  financialProjections:  z.string(),
-  milestonesAndTraction: z.string(),
-  additionalNotes:       z.string(),
+  executiveSummary: z.object({
+    businessOverview: z.string(),
+    businessOrigins: z.string(),
+    competitiveAdvantage: z.string(),
+    financialSummary: z.string(),
+  }),
+  situationAnalysis: z.object({
+    industryOverview: z.string(),
+    keyMarketTrends: z.string(),
+  }),
+  swotAnalysis: z.object({
+    strengths: z.string(),
+    weaknesses: z.string(),
+    opportunities: z.string(),
+    threats: z.string(),
+  }),
+  marketingPlan: z.object({
+    businessObjectives: z.string(),
+    segmentationTargetingPositioning: z.string(),
+    marketingMix4Ps: z.string(),
+  }),
+  serviceStrategy: z.string(),
+  operationsPlan: z.string(),
+  managementTeam: z.string(),
+  financialProjections: z.string(),
+  riskMitigation: z.string(),
 })
 
 export async function generateBusinessPlan(
@@ -105,9 +135,49 @@ export async function generateBusinessPlan(
     console.log("🔷 [Env] OPENAI_API_KEY:", Boolean(process.env.OPENAI_API_KEY))
 
     // 2️⃣ Generate the plan via OpenAI
-    // 2️⃣ Generate the plan via OpenAI
-      const systemPrompt = `You are an expert business-plan writer with 20+ years of experience crafting professional, investor-ready plans. 
-      Write in formal business language, use the user’s exact data (don’t make up numbers), and produce 200–400 words per section.`
+      // const systemPrompt = `You are an expert business-plan writer with 20+ years of experience crafting professional, investor-ready plans. 
+      // Write in formal business language, use the user’s exact data (don’t make up numbers), and produce 200–400 words per section.`
+      
+      const systemPrompt = `You are an expert business‐plan writer with 20+ years of experience helping entrepreneurs create professional, investor-ready business plans.
+
+        TASK: Generate a JSON object that matches the following exact shape (do not output any extra keys or markdown):
+
+        {
+          "executiveSummary": {
+            "businessOverview": string,
+            "businessOrigins": string,
+            "competitiveAdvantage": string,
+            "financialSummary": string
+          },
+          "situationAnalysis": {
+            "industryOverview": string,
+            "keyMarketTrends": string
+          },
+          "swotAnalysis": {
+            "strengths": string,
+            "weaknesses": string,
+            "opportunities": string,
+            "threats": string
+          },
+          "marketingPlan": {
+            "businessObjectives": string,
+            "segmentationTargetingPositioning": string,
+            "marketingMix4Ps": string
+          },
+          "serviceStrategy": string,
+          "operationsPlan": string,
+          "managementTeam": string,
+          "financialProjections": string,
+          "riskMitigation": string
+        }
+
+        REQUIREMENTS:
+        1. Return _only_ the JSON object (no markdown, no commentary).
+        2. Populate each string field with 2–3 short paragraphs of professional, formal business language.
+        3. Use the user’s form inputs—you must not invent data or numbers.
+        4. Keep each top-level field to roughly 200–400 words of content.
+        `;
+
 
       const userPrompt = `Generate a comprehensive business plan using this form input:
 
@@ -154,23 +224,26 @@ export async function generateBusinessPlan(
     console.log("🔷 [Action] inserting into business_plans for user:", user.id)
 
     // 5️⃣ Insert the new business plan
-    const { error: insertError } = await supabase
-      .from("business_plans")
-      .insert({
-        user_id:   user.id,
-        plan_name: formData.businessName,
-        plan_data: planObject,
-      })
+    const { data: inserted, error: insertError } = await supabase
+        .from("business_plans")
+        .insert({
+          user_id: user.id,
+          plan_name: formData.businessName,
+          plan_data: planObject,
+        })
+        .select("id")
+        .single();
 
-    if (insertError) {
-      console.error("🔷 [Action] insertError:", insertError)
-      return { success: false, error: insertError.message }
-    }
+      if (insertError || !inserted?.id) {
+        console.error("🔷 [Action] insertError:", insertError);
+        return { success: false, error: insertError?.message ?? "Insert failed" };
+      }
 
-    console.log("🔷 [Action] generation & persist successful")
-    return { success: true, plan: planObject }
-
-  } catch (error: any) {
+      console.log("🔷 [Action] generation & persist successful (id=", inserted.id, ")");
+      return { success: true, plan: planObject, planId: inserted.id };
+  } 
+  
+  catch (error: any) {
     console.error("Error generating business plan:", error)
     return { success: false, error: error.message }
   }
