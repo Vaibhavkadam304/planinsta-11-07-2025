@@ -6,25 +6,24 @@ import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Menu, X } from "lucide-react"
 import { LeadCaptureModal } from "./lead-capture-modal"
+// ← NEW:
+import { useSession } from "@supabase/auth-helpers-react"
 
 export function Navigation() {
+  const session = useSession()             // ← NEW
   const [isScrolled, setIsScrolled] = useState(false)
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false)
   const [isLeadModalOpen, setIsLeadModalOpen] = useState(false)
 
   useEffect(() => {
-    const handleScroll = () => {
-      setIsScrolled(window.scrollY > 10)
-    }
+    const handleScroll = () => setIsScrolled(window.scrollY > 10)
     window.addEventListener("scroll", handleScroll)
     return () => window.removeEventListener("scroll", handleScroll)
   }, [])
 
   const scrollToSection = (sectionId: string) => {
-    const element = document.getElementById(sectionId)
-    if (element) {
-      element.scrollIntoView({ behavior: "smooth" })
-    }
+    const el = document.getElementById(sectionId)
+    if (el) el.scrollIntoView({ behavior: "smooth" })
     setIsMobileMenuOpen(false)
   }
 
@@ -32,7 +31,9 @@ export function Navigation() {
     <>
       <nav
         className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-          isScrolled ? "bg-white/95 backdrop-blur-md shadow-lg" : "bg-transparent"
+          isScrolled
+            ? "bg-white/95 backdrop-blur-md shadow-lg"
+            : "bg-transparent"
         }`}
       >
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -47,8 +48,12 @@ export function Navigation() {
                 className="h-8 w-auto lg:h-10"
               />
               <div className="ml-3 hidden sm:block">
-                <span className="text-lg font-bold text-gray-900">PlanInsta</span>
-                <span className="text-sm text-gray-500 ml-1">by Wytmode</span>
+                <span className="text-lg font-bold text-gray-900">
+                  PlanInsta
+                </span>
+                <span className="text-sm text-gray-500 ml-1">
+                  by Wytmode
+                </span>
               </div>
             </div>
 
@@ -72,11 +77,28 @@ export function Navigation() {
               >
                 Testimonials
               </button>
-              <Link href="/auth/signin" passHref>
-                <Button variant="ghost" className="text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium">
-                  Login
-                </Button>
-              </Link>
+
+              {/* ← CONDITIONAL LOGIN / DASHBOARD */}
+              {session ? (
+                <Link href="/dashboard" passHref>
+                  <Button
+                    variant="ghost"
+                    className="text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium"
+                  >
+                    Dashboard
+                  </Button>
+                </Link>
+              ) : (
+                <Link href="/auth/signin" passHref>
+                  <Button
+                    variant="ghost"
+                    className="text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium"
+                  >
+                    Login
+                  </Button>
+                </Link>
+              )}
+
               <Button
                 onClick={() => setIsLeadModalOpen(true)}
                 className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-6 py-2 font-semibold transition-all duration-300 transform hover:scale-105"
@@ -93,7 +115,11 @@ export function Navigation() {
                 onClick={() => setIsMobileMenuOpen(!isMobileMenuOpen)}
                 className="text-gray-700"
               >
-                {isMobileMenuOpen ? <X className="h-6 w-6" /> : <Menu className="h-6 w-6" />}
+                {isMobileMenuOpen ? (
+                  <X className="h-6 w-6" />
+                ) : (
+                  <Menu className="h-6 w-6" />
+                )}
               </Button>
             </div>
           </div>
@@ -120,14 +146,28 @@ export function Navigation() {
                 >
                   Testimonials
                 </button>
-                <Link href="/auth/signin" passHref>
-                  <Button
-                    variant="ghost"
-                    className="justify-start text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium"
-                  >
-                    Login
-                  </Button>
-                </Link>
+
+                {/* ← MOBILE: conditional Login/Dashboard */}
+                {session ? (
+                  <Link href="/dashboard" passHref>
+                    <Button
+                      variant="ghost"
+                      className="justify-start text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium px-4 py-2"
+                    >
+                      Dashboard
+                    </Button>
+                  </Link>
+                ) : (
+                  <Link href="/auth/signin" passHref>
+                    <Button
+                      variant="ghost"
+                      className="justify-start text-gray-700 hover:text-orange-600 hover:bg-transparent font-medium px-4 py-2"
+                    >
+                      Login
+                    </Button>
+                  </Link>
+                )}
+
                 <div className="px-4">
                   <Button
                     onClick={() => setIsLeadModalOpen(true)}
@@ -142,7 +182,10 @@ export function Navigation() {
         </div>
       </nav>
 
-      <LeadCaptureModal isOpen={isLeadModalOpen} onClose={() => setIsLeadModalOpen(false)} />
+      <LeadCaptureModal
+        isOpen={isLeadModalOpen}
+        onClose={() => setIsLeadModalOpen(false)}
+      />
     </>
   )
 }

@@ -1,22 +1,26 @@
 // app/payment-history/page.tsx
 import React from "react"
-import Link from "next/link"
 import { cookies } from "next/headers"
+import Link from "next/link"
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import DashboardLayout from "@/components/dashboard-layout"
+import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
+import { CalendarDays, CreditCard, IndianRupee } from "lucide-react"
+
+function formatAmount(paise: number, currency = "INR") {
+  if (currency === "INR") return `₹${(paise / 100).toLocaleString("en-IN")}`
+  return `${currency} ${(paise / 100).toLocaleString()}`
+}
 
 export default async function PaymentHistoryPage() {
-  // Initialize Supabase client with auth cookies
   const supabase = createServerComponentClient({ cookies })
-
-  // Fetch current user
   const {
     data: { user },
   } = await supabase.auth.getUser()
   const userName = (user?.user_metadata as any)?.full_name || "User"
 
-  // Fetch payment records
-  const { data: payments } = await supabase
+  const { data: payments = [] } = await supabase
     .from("payments")
     .select("id, razorpay_order, razorpay_payment, amount, currency, paid_at")
     .order("paid_at", { ascending: false })
@@ -24,28 +28,59 @@ export default async function PaymentHistoryPage() {
   return (
     <DashboardLayout currentPage="payments" userName={userName}>
       <div className="p-8">
-        <h1 className="text-2xl font-bold mb-4">Payment History</h1>
-        {payments && payments.length > 0 ? (
-          <ul className="space-y-3">
+        {/* Gradient heading */}
+        <div className="mb-8 text-center">
+          <h1 className="text-3xl font-semibold bg-gradient-to-r from-[#FF7A00] to-[#F0435C] bg-clip-text text-transparent inline-flex items-center gap-2">
+            <CreditCard className="w-7 h-7" />
+            Payment History
+          </h1>
+          <p className="mt-2 text-sm text-muted-foreground">
+            All your completed payments are listed below.
+          </p>
+        </div>
+
+        {payments.length ? (
+          <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-3">
             {payments.map((p) => (
-              <li key={p.id} className="p-4 border rounded-lg bg-white shadow-sm">
-                <p>
-                  <strong>Date:</strong> {new Date(p.paid_at).toLocaleString()}
-                </p>
-                <p>
-                  <strong>Amount:</strong> {p.currency} {p.amount / 100}
-                </p>
-                <p>
-                  <strong>Order ID:</strong> {p.razorpay_order}
-                </p>
-                <p>
-                  <strong>Payment ID:</strong> {p.razorpay_payment}
-                </p>
-              </li>
+              <Card key={p.id} className="bg-white shadow-sm hover:shadow-md transition">
+                <CardHeader className="pb-2">
+                  <CardTitle className="text-base flex items-center gap-2">
+                    <IndianRupee className="w-4 h-4 text-green-600" />
+                    {formatAmount(p.amount, p.currency)}
+                  </CardTitle>
+                </CardHeader>
+                <CardContent className="space-y-2 text-sm text-gray-600">
+                  <p className="flex items-center gap-2">
+                    <CalendarDays className="w-4 h-4 text-blue-600" />
+                    {new Date(p.paid_at).toLocaleString()}
+                  </p>
+                  <p className="break-all">
+                    <span className="font-medium">Order ID:</span> {p.razorpay_order}
+                  </p>
+                  <p className="break-all">
+                    <span className="font-medium">Payment ID:</span> {p.razorpay_payment}
+                  </p>
+                  <div className="pt-2">
+                    <Badge variant="secondary" className="rounded-full">
+                      Paid
+                    </Badge>
+                  </div>
+                </CardContent>
+              </Card>
             ))}
-          </ul>
+          </div>
         ) : (
-          <p>No payments found.</p>
+          <Card className="bg-white shadow-sm">
+            <CardContent className="py-14 text-center space-y-3">
+              <p className="text-sm text-muted-foreground">No payments found.</p>
+              <Link
+                href="/plan-builder/payment-info"
+                className="inline-block px-5 py-2 bg-black text-white rounded-lg text-xs font-medium hover:opacity-90"
+              >
+                Make your first payment
+              </Link>
+            </CardContent>
+          </Card>
         )}
       </div>
     </DashboardLayout>

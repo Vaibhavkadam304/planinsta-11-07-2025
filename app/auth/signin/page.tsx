@@ -57,10 +57,17 @@ export default function SignInPage() {
     if (!validateForm()) return
 
     setIsLoading(true)
+    setErrors({})
+
+    // Clear any stale session before attempting a new login
+    await supabase.auth.signOut()
+
     const { error } = await supabase.auth.signInWithPassword({
-      email: formData.email,
+      email: formData.email.trim(),
       password: formData.password,
     })
+
+    setIsLoading(false)
 
     if (error) {
       toast({
@@ -68,15 +75,16 @@ export default function SignInPage() {
         description: error.message,
         variant: "destructive",
       })
-    } else {
-      toast({
-        title: "Welcome back!",
-        description: "You have been successfully signed in.",
-      })
-      router.replace("/dashboard")
+      return
     }
-    setIsLoading(false)
+
+    toast({
+      title: "Welcome back!",
+      description: "You have been successfully signed in.",
+    })
+    router.replace("/dashboard")
   }
+
 
   return (
     <AuthLayout>

@@ -6,7 +6,7 @@ import React, { useState } from "react"
 import Image from "next/image"
 import { useRouter } from "next/navigation"
 import { useSupabaseClient } from "@supabase/auth-helpers-react"
-
+import Link from "next/link"
 import { Button } from "@/components/ui/button"
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar"
 import {
@@ -44,7 +44,6 @@ const navigationItems = [
   // { id: "folders",   label: "Folders",   icon: FolderOpen,     href: "/dashboard/folders" },
   { id: "trash",     label: "Trash",     icon: Trash2,          href: "/dashboard/trash" },
   { id: "settings",  label: "Account Settings", icon: Settings, href: "/dashboard/settings" },
-  { id: "help",      label: "Help & Support",    icon: HelpCircle, href: "/dashboard/help" },
   {
     id: "payments",
     label: "Payment History",
@@ -138,7 +137,8 @@ export default function DashboardLayout({
               <DropdownMenuTrigger asChild>
                 <Button variant="ghost" className="flex items-center space-x-2">
                   <Avatar className="h-8 w-8">
-                    <AvatarImage src="/placeholder.svg?width=32&height=32" />
+                    {/* remove this line entirely */}
+                    {/* <AvatarImage src="/placeholder.svg?width=32&height=32" /> */}
                     <AvatarFallback className="bg-gradient-to-r from-orange-500 to-red-500 text-white">
                       {userInitials}
                     </AvatarFallback>
@@ -147,18 +147,21 @@ export default function DashboardLayout({
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="end" className="w-56 rounded-2xl bg-white">
-                <DropdownMenuItem className="flex items-center space-x-2 rounded-xl">
-                  <User className="h-4 w-4" /> <span>Profile</span>
+                <DropdownMenuItem asChild className="flex items-center space-x-2 rounded-xl">
+                  <Link href="/dashboard/settings">
+                    <User className="h-4 w-4" />
+                    <span>Profile</span>
+                  </Link>
                 </DropdownMenuItem>
-                <DropdownMenuItem className="flex items-center space-x-2 rounded-xl">
-                  <Settings className="h-4 w-4" /> <span>Settings</span>
-                </DropdownMenuItem>
+
                 <DropdownMenuSeparator />
+
                 <DropdownMenuItem
                   onClick={handleLogout}
                   className="flex items-center space-x-2 text-red-600 rounded-xl cursor-pointer"
                 >
-                  <LogOut className="h-4 w-4" /> <span>Logout</span>
+                  <LogOut className="h-4 w-4" />
+                  <span>Logout</span>
                 </DropdownMenuItem>
               </DropdownMenuContent>
             </DropdownMenu>

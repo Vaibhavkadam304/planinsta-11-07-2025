@@ -1,7 +1,6 @@
 "use client"
 
 import type React from "react"
-
 import { useState } from "react"
 import Image from "next/image"
 import { Button } from "@/components/ui/button"
@@ -14,7 +13,6 @@ interface PlanBuilderTopBarProps {
   stage: "quiz" | "generating" | "output"
   onDownload?: () => void
   onBackToDashboard: () => void
-  onSave?: () => void;            // ← add this
 }
 
 export function PlanBuilderTopBar({
@@ -23,7 +21,6 @@ export function PlanBuilderTopBar({
   stage,
   onDownload,
   onBackToDashboard,
-  onSave,
 }: PlanBuilderTopBarProps) {
   const [isEditingTitle, setIsEditingTitle] = useState(false)
   const [tempTitle, setTempTitle] = useState(planTitle)
@@ -57,11 +54,17 @@ export function PlanBuilderTopBar({
   const StageIcon = stageInfo.icon
 
   return (
-    <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-6 py-4">
+    <header className="sticky top-0 z-50 bg-white border-b border-gray-200 px-6 py-2">
       <div className="flex items-center justify-between">
         {/* Left Section */}
         <div className="flex items-center space-x-6">
-          <Image src="/images/planinsta-logo.png" alt="PlanInsta" width={120} height={32} className="h-8 w-auto" />
+          <Image
+            src="/images/planinsta-logo.png"
+            alt="PlanInsta"
+            width={120}
+            height={32}
+            className="h-8 w-auto"
+          />
 
           {/* Editable Plan Title */}
           <div className="flex items-center space-x-3">
@@ -79,7 +82,7 @@ export function PlanBuilderTopBar({
                 onClick={() => setIsEditingTitle(true)}
                 className="text-xl font-bold text-gray-900 cursor-pointer hover:text-orange-600 transition-colors duration-200 px-2 py-1 rounded-2xl hover:bg-gray-50"
               >
-                {planTitle}
+                {planTitle} — Business Plan
               </h1>
             )}
           </div>
@@ -93,34 +96,26 @@ export function PlanBuilderTopBar({
 
         {/* Right Section */}
         <div className="flex items-center space-x-4">
-          {stage === "output" && onDownload && (
-            <Button
-              onClick={onDownload}
-              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-6 py-2 font-semibold transition-all duration-300 transform hover:scale-105"
-            >
-              <Download className="h-4 w-4 mr-2" />
-              Download DOCX
-            </Button>
-          )}
-
           <Button
-            onClick={onBackToDashboard}
             variant="outline"
-            className="rounded-2xl px-6 py-2 font-semibold border-2 hover:border-orange-500 hover:text-orange-600 transition-all duration-300"
+            size="sm"
+            onClick={onBackToDashboard}
+            className="text-gray-600 hover:text-orange-600"
           >
             <ArrowLeft className="h-4 w-4 mr-2" />
-            Back to Dashboard
+            Dashboard
           </Button>
-          <div className="flex space-x-2">
-              {stage === "output" && onSave && (
-                <button
-                  className="px-4 py-2 bg-blue-600 text-white rounded"
-                  onClick={onSave}
-                >
-                  Save
-                </button>
-              )}
-            </div>
+
+          {stage === "output" && onDownload && (
+            <Button
+              size="sm"
+              onClick={onDownload}
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-4 py-1 font-semibold transition-all duration-300 transform hover:scale-[1.02]"
+            >
+              <Download className="h-4 w-4 mr-1" />
+              Download Docs
+            </Button>
+          )}
         </div>
       </div>
     </header>

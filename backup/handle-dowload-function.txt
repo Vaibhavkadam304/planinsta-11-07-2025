@@ -1,0 +1,314 @@
+ const handleDownload = async () => {
+    // 1) Guard: ensure we have a plan
+    if (!generatedPlan) {
+      console.error('🚫 No plan available to download')
+      return
+    }
+    console.log('🔷 Download clicked (top-bar)', generatedPlan)
+
+    // Determine the title text and filename base
+    const titleText = planData.businessName || 'Business Plan'
+    const displayTitle = capitalizeWords(titleText)
+    const fileBase  = titleText
+      .toLowerCase()
+      .replace(/\s+/g, '-')
+      .replace(/[^a-z0-9\-]/g, '')
+
+    // 2) Build the .docx document
+    // pull out our nested plan shape
+    const {
+      coverPage,
+      executiveSummary,
+      companyOverview,
+      products,
+      marketAnalysis,
+      marketingSalesStrategies,
+      operationsPlan,
+      managementOrganization,
+      financialPlan,
+      riskAnalysisMitigation,
+      appendices,
+    } = generatedPlan
+
+  const doc = new Document({
+  sections: [
+    {
+      children: [
+        // Title / Cover Page
+        new Paragraph({ text: displayTitle ?? "", heading: HeadingLevel.TITLE }),
+        new Paragraph({ text: 'Cover Page', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: coverPage.logo ?? "" }),
+
+        // 1. Executive Summary
+        new Paragraph({ text: 'Executive Summary', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Business Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: executiveSummary.businessOverview ?? "" }),
+        new Paragraph({ text: 'Funding Requirements & Usage of Funds', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: executiveSummary.fundingRequirementsUsageOfFunds ?? "" }),
+        new Paragraph({ text: 'Past Milestones', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: executiveSummary.pastMilestones ?? "" }),
+        new Paragraph({ text: 'Problem Statement & Solution', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: executiveSummary.problemStatementSolution ?? "" }),
+
+        // 2. Company Overview
+        new Paragraph({ text: 'Company Overview', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Vision Statement', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.visionStatement ?? "" }),
+        new Paragraph({ text: 'Mission Statement', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.missionStatement ?? "" }),
+        new Paragraph({ text: 'Company History & Background', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.companyHistoryBackground ?? "" }),
+        new Paragraph({ text: 'Founding Team', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.foundingTeam ?? "" }),
+        new Paragraph({ text: 'Legal Structure & Ownership', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.legalStructureOwnership ?? "" }),
+        new Paragraph({ text: 'Core Values & Culture', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.coreValuesCulture ?? "" }),
+        new Paragraph({ text: 'Company Objectives', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: companyOverview.companyObjectives ?? "" }),
+
+        // 3. Products
+        new Paragraph({ text: 'Products', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: products.overview ?? "" }),
+        ...[1,2,3,4,5,6,7,8,9,10].flatMap(i => [
+          new Paragraph({ text: `Product ${i}`, heading: HeadingLevel.HEADING_2 }),
+          new Paragraph({ text: (products as any)[`product${i}`] ?? "" }),
+        ]),
+        new Paragraph({ text: 'Unique Selling Propositions (USPs)', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: products.uniqueSellingPropositions ?? "" }),
+        new Paragraph({ text: 'Development Roadmap', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: products.developmentRoadmap ?? "" }),
+        new Paragraph({ text: 'Intellectual Property & Regulatory Status', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: products.intellectualPropertyRegulatoryStatus ?? "" }),
+
+        // 4. Market Analysis
+        new Paragraph({ text: 'Market Analysis', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Industry Overview & Size', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.industryOverviewSize ?? "" }),
+        new Paragraph({ text: 'Growth Trends & Drivers', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.growthTrendsDrivers ?? "" }),
+        new Paragraph({ text: 'Underlying Business Drivers', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.underlyingBusinessDrivers ?? "" }),
+        new Paragraph({ text: 'Target Market Segmentation', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.targetMarketSegmentation ?? "" }),
+        new Paragraph({ text: 'Customer Personas & Their Needs', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.customerPersonasNeeds ?? "" }),
+        new Paragraph({ text: 'Competitive Landscape & Positioning', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.competitiveLandscapePositioning ?? "" }),
+        new Paragraph({ text: "Products' Differentiation", heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.productsDifferentiation ?? "" }),
+        new Paragraph({ text: 'Barriers to Entry', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketAnalysis.barriersToEntry ?? "" }),
+
+        // 5. Marketing & Sales Strategies
+        new Paragraph({ text: 'Marketing & Sales Strategies', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Distribution Channels', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketingSalesStrategies.distributionChannels ?? "" }),
+        new Paragraph({ text: 'Technology Cost Structure', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketingSalesStrategies.technologyCostStructure ?? "" }),
+        new Paragraph({ text: 'Customer Pricing Structure', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketingSalesStrategies.customerPricingStructure ?? "" }),
+        new Paragraph({ text: 'Retention Strategies', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketingSalesStrategies.retentionStrategies ?? "" }),
+        new Paragraph({ text: 'Integrated Funnel & Financial Impact', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: marketingSalesStrategies.integratedFunnelFinancialImpact ?? "" }),
+
+        // 6. Operations Plan
+        new Paragraph({ text: 'Operations Plan', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.overview ?? "" }),
+        new Paragraph({ text: 'Organizational Structure & Team Responsibilities', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.organizationalStructureTeamResponsibilities ?? "" }),
+        new Paragraph({ text: 'Infrastructure', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.infrastructure ?? "" }),
+        new Paragraph({ text: 'Customer Onboarding-to-Renewal Workflow', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.customerOnboardingToRenewalWorkflow ?? "" }),
+        new Paragraph({ text: 'Cross-Functional Communication & Decision-Making', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.crossFunctionalCommunicationDecisionMaking ?? "" }),
+        new Paragraph({ text: 'Key Performance Metrics & Goals', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: operationsPlan.keyPerformanceMetricsGoals ?? "" }),
+
+        // 7. Management & Organization
+        new Paragraph({ text: 'Management & Organization', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: managementOrganization.overview ?? "" }),
+        new Paragraph({ text: 'Organizational Chart', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: managementOrganization.organizationalChart ?? "" }),
+        new Paragraph({ text: 'Hiring Plan & Key Roles', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: managementOrganization.hiringPlanKeyRoles ?? "" }),
+
+        // 8. Financial Plan
+        new Paragraph({ text: 'Financial Plan', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.overview ?? "" }),
+        new Paragraph({ text: 'Key Assumptions', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.keyAssumptions ?? "" }),
+
+        // Revenue Forecast Table...
+        new Paragraph({ text: 'Revenue Forecast', heading: HeadingLevel.HEADING_2 }),
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Period' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Amount' })] }),
+              ],
+            }),
+            ...financialPlan.revenueForecast.map(r =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: r.period ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.amount ?? "" })] }),
+                ],
+              })
+            ),
+          ],
+        }),
+
+        // COGS Table
+        new Paragraph({ text: 'Cost of Goods Sold (COGS)', heading: HeadingLevel.HEADING_2 }),
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Period' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'COGS' })] }),
+              ],
+            }),
+            ...financialPlan.cogs.map(r =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: r.period ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.amount ?? "" })] }),
+                ],
+              })
+            ),
+          ],
+        }),
+
+        // OpEx Table
+        new Paragraph({ text: 'Operating Expenses (OpEx)', heading: HeadingLevel.HEADING_2 }),
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Period' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'OpEx' })] }),
+              ],
+            }),
+            ...financialPlan.opEx.map(r =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: r.period ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.amount ?? "" })] }),
+                ],
+              })
+            ),
+          ],
+        }),
+
+        // P&L Table
+        new Paragraph({ text: 'Projected Profit & Loss Statement (P&L)', heading: HeadingLevel.HEADING_2 }),
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Period' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Gross Profit' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'EBITDA' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Net Income' })] }),
+              ],
+            }),
+            ...financialPlan.projectedPnl.map(r =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: r.period ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.grossProfit ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.ebitda ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.netIncome ?? "" })] }),
+                ],
+              })
+            ),
+          ],
+        }),
+
+        // Cash Flow & Runway
+        new Paragraph({ text: 'Cash Flow & Runway Analysis', heading: HeadingLevel.HEADING_2 }),
+        new Table({
+          rows: [
+            new TableRow({
+              children: [
+                new TableCell({ children: [new Paragraph({ text: 'Period' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Begin Cash' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Inflows' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Outflows' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'End Cash' })] }),
+                new TableCell({ children: [new Paragraph({ text: 'Runway (mo)' })] }),
+              ],
+            }),
+            ...financialPlan.cashFlowRunwayAnalysis.map(r =>
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: r.period ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.beginningCash ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.inflows ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.outflows ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.endingCash ?? "" })] }),
+                  new TableCell({ children: [new Paragraph({ text: r.runwayMonths ?? "" })] }),
+                ],
+              })
+            ),
+          ],
+        }),
+
+        // Remaining narrative fields
+        new Paragraph({ text: 'Key Financial Metrics & Ratios', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.keyFinancialMetricsRatios ?? "" }),
+        new Paragraph({ text: 'Use of Funds & Runway', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.useOfFundsRunway ?? "" }),
+        new Paragraph({ text: 'Key Sensitivity & Risk Scenarios', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.keySensitivityRiskScenarios ?? "" }),
+        new Paragraph({ text: 'Summary & Outlook', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: financialPlan.summaryOutlook ?? "" }),
+
+        // 9. Risk Analysis & Mitigation
+        new Paragraph({ text: 'Risk Analysis & Mitigation', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Overview', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.overview ?? "" }),
+        new Paragraph({ text: 'Market Risks', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.marketRisks ?? "" }),
+        new Paragraph({ text: 'Operational Risks', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.operationalRisks ?? "" }),
+        new Paragraph({ text: 'Regulatory & Legal Risks', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.regulatoryLegalRisks ?? "" }),
+        new Paragraph({ text: 'Financial Risks', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.financialRisks ?? "" }),
+        new Paragraph({ text: 'Contingency Plans', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: riskAnalysisMitigation.contingencyPlans ?? "" }),
+
+        // 10. Appendices
+        new Paragraph({ text: 'Appendices', heading: HeadingLevel.HEADING_1 }),
+        new Paragraph({ text: 'Glossary', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: appendices.glossary ?? "" }),
+        new Paragraph({ text: 'Management Team Resources', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: appendices.managementTeamsResources ?? "" }),
+        new Paragraph({ text: 'Projected Finances Tables', heading: HeadingLevel.HEADING_2 }),
+        new Paragraph({ text: appendices.projectedFinancesTables ?? "" }),
+      ],
+    },
+  ],
+});
+
+
+
+    console.log('🔷 Document built')
+
+    // 3) Convert to a Blob
+    const blob = await Packer.toBlob(doc)
+    console.log('🔷 Blob created')
+
+    // 4) Trigger download in browser
+    saveAs(blob, `${titleText.toLowerCase().replace(/\s+/g,'-')}.docx`)
+    console.log('🔷 saveAs invoked')
+  }

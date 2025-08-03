@@ -5,14 +5,27 @@ import { PlanBuilderTopBar } from "@/components/plan-builder/top-bar"
 import { QuizInterface } from "@/components/plan-builder/quiz-interface"
 import { GenerationScreen } from "@/components/plan-builder/generation-screen"
 import { PlanOutput } from "@/components/plan-builder/plan-output"
-import { ChatEditModal } from "@/components/plan-builder/chat-edit-modal"
+import { EditSectionModal } from "@/components/plan-builder/edit-section-modal"
 import { UnsavedChangesModal } from "@/components/plan-builder/unsaved-changes-modal"
 import { useToast } from "@/hooks/use-toast"
 import { generateBusinessPlan, GenerateBusinessPlanResult } from "@/app/actions/generate-plan"
 import { useSession } from "@supabase/auth-helpers-react"
 import { useRouter, useSearchParams } from "next/navigation"
-import { saveAs } from 'file-saver'
-import { Document, Packer, Paragraph, HeadingLevel } from 'docx'
+import * as htmlDocx from "html-docx-js/dist/html-docx"
+import { exportBusinessPlanDocx } from "@/app/utils/exportDocx"
+import { saveAs } from "file-saver";
+import Link from "next/link"
+
+import {
+  Document,
+  Packer,
+  Paragraph,
+  HeadingLevel,
+  Table,
+  TableRow,
+  TableCell,
+} from "docx"
+
 import ReactMarkdown from "react-markdown"
 
 
@@ -82,33 +95,122 @@ export interface BusinessPlanData {
 // }
 // after
 export interface GeneratedPlan {
+  coverPage: {
+    logo: string
+  }
   executiveSummary: {
     businessOverview: string
-    businessOrigins: string
-    competitiveAdvantage: string
-    financialSummary: string
+    fundingRequirementsUsageOfFunds: string
+    pastMilestones: string
+    problemStatementSolution: string
   }
-  situationAnalysis: {
-    industryOverview: string
-    keyMarketTrends: string
+  companyOverview: {
+    visionStatement: string
+    missionStatement: string
+    companyHistoryBackground: string
+    foundingTeam: string
+    legalStructureOwnership: string
+    coreValuesCulture: string
+    companyObjectives: string
   }
-  swotAnalysis: {
-    strengths: string
-    weaknesses: string
-    opportunities: string
-    threats: string
+  products: {
+    overview: string
+    product1: string
+    product2: string
+    product3: string
+    product4: string
+    product5: string
+    product6: string
+    product7: string
+    product8: string
+    product9: string
+    product10: string
+    uniqueSellingPropositions: string
+    developmentRoadmap: string
+    intellectualPropertyRegulatoryStatus: string
   }
-  marketingPlan: {
-    businessObjectives: string
-    segmentationTargetingPositioning: string
-    marketingMix4Ps: string
+  marketAnalysis: {
+    industryOverviewSize: string
+    growthTrendsDrivers: string
+    underlyingBusinessDrivers: string
+    targetMarketSegmentation: string
+    customerPersonasNeeds: string
+    competitiveLandscapePositioning: string
+    productsDifferentiation: string
+    barriersToEntry: string
   }
-  serviceStrategy: string
-  operationsPlan: string
-  managementTeam: string
-  financialProjections: string
-  riskMitigation: string
+  marketingSalesStrategies: {
+    distributionChannels: string
+    technologyCostStructure: string
+    customerPricingStructure: string
+    retentionStrategies: string
+    integratedFunnelFinancialImpact: string
+  }
+  operationsPlan: {
+    overview: string
+    organizationalStructureTeamResponsibilities: string
+    infrastructure: string
+    customerOnboardingToRenewalWorkflow: string
+    crossFunctionalCommunicationDecisionMaking: string
+    keyPerformanceMetricsGoals: string
+  }
+  managementOrganization: {
+    overview: string
+    organizationalChart: string
+    hiringPlanKeyRoles: string
+  }
+  financialPlan: {
+    overview: string
+    keyAssumptions: string
+
+    // <-- changed these from `string` to arrays of objects:
+    revenueForecast: Array<{
+      period: string
+      amount: string
+    }>
+    cogs: Array<{
+      period: string
+      amount: string
+    }>
+    opEx: Array<{
+      period: string
+      amount: string
+    }>
+    projectedPnl: Array<{
+      period: string
+      grossProfit: string
+      ebitda: string
+      netIncome: string
+    }>
+    cashFlowRunwayAnalysis: Array<{
+      period: string
+      beginningCash: string
+      inflows: string
+      outflows: string
+      endingCash: string
+      runwayMonths: string
+    }>
+
+    keyFinancialMetricsRatios: string
+    useOfFundsRunway: string
+    keySensitivityRiskScenarios: string
+    summaryOutlook: string
+  }
+  riskAnalysisMitigation: {
+    overview: string
+    marketRisks: string
+    operationalRisks: string
+    regulatoryLegalRisks: string
+    financialRisks: string
+    contingencyPlans: string
+  }
+  appendices: {
+    glossary: string
+    managementTeamsResources: string
+    projectedFinancesTables: string
+  }
 }
+
 
 
 type PlanBuilderStage = "quiz" | "generating" | "output"
@@ -241,7 +343,7 @@ export default function PlanBuilderClient() {
       // At this point TS knows result.success === true, so planId must exist
       setPlanId(result.planId)
       setGeneratedPlan(result.plan)
-      setGeneratedPlan(result.plan)
+      console.log("📝 GeneratedPlan JSON:", JSON.stringify(result.plan, null, 2))
 
       setStage("output")
       setHasUnsavedChanges(false)
@@ -264,36 +366,13 @@ export default function PlanBuilderClient() {
   /* ------------------------------ Handlers -------------------------------- */
   console.log("🔧 PlanBuilderPage mounted, initial planData:", planData)
   async function handleGeneratePlan() {
-    // 1️⃣ stash quiz answers so we can restore after payment
-    sessionStorage.setItem("planData", JSON.stringify(planData))
+      // 1️⃣ stash quiz answers so we can restore after payment
+      sessionStorage.setItem("planData", JSON.stringify(planData))
 
-    try {
-      // 2️⃣ ask the server if they’ve already paid
-      const res = await fetch("/api/razorpay/record-payment", {
-        method:      "GET",
-        credentials: "include",
-      })
-      if (!res.ok) throw new Error("Failed to verify payment")
-
-      const { paid } = await res.json()
-
-      // 3️⃣ branch on payment status
-      if (paid) {
-        // already paid → skip checkout, trigger generation
-        router.replace("/plan-builder?paid=true")
-      } else {
-        // not paid → send to checkout
-        router.replace("/plan-builder/payment")
-      }
-    } catch (err: any) {
-      console.error("Payment‑status check failed:", err)
-      toast({
-        variant: "destructive",
-        title: "Error",
-        description: "Could not verify payment status. Please try again.",
-      })
+      // 2️⃣ always redirect to payment
+      router.replace("/plan-builder/payment-info")
     }
-  }
+
 
 
 
@@ -325,61 +404,56 @@ export default function PlanBuilderClient() {
     })
   }
 
-  // const handleGeneratePlan = async () => {
-  // // 1️⃣ Kick off loading state
-  //   console.log("⏳ Stage → generating")
-  //   setStage("generating")
-
-  //   try {
-  //     // 2️⃣ Log the payload
-  //     console.log("▶️ Sending planData to server action:", planData)
-
-  //     // 3️⃣ Call your Server Action
-  //     const result = await generateBusinessPlan(planData)
-
-  //     // 4️⃣ Inspect the result
-  //     console.log("◀️ Server action result:", result)
-  //     if (!result.success) throw new Error(result.error)
-
-  //     // 5️⃣ Push into state & UI
-  //     setGeneratedPlan(result.plan)
-  //     console.log("✅ Stage → output")
-  //     setStage("output")
-  //     setHasUnsavedChanges(false)
-
-  //     toast({
-  //       title: "Plan Generated Successfully!",
-  //       description: "Your business plan is ready for review and download.",
-  //     })
-  //   } catch (err: any) {
-  //     console.error("❌ generateBusinessPlan failed:", err)
-  //     setStage("quiz")
-  //     toast({
-  //       variant: "destructive",
-  //       title: "Plan Generation Failed",
-  //       description: err.message,
-  //     })
-  //   }
-  // }
-
-  // === New handler: save answers & send to payment page ===
-  
 
 
-  const handleSectionEdit = (sectionKey: string, newContent: string) => {
-    if (generatedPlan) {
-      setGeneratedPlan((prev) =>
-        prev
-          ? {
-              ...prev,
-              [sectionKey]: newContent,
-            }
-          : null,
-      )
-      setEditingSection(null)
+  const handleSectionEdit = async (sectionKey: string, newContent: string) => {
+    if (!planId || !generatedPlan) return
+
+    // 1) update local state
+    // const updatedPlan = { ...generatedPlan, [sectionKey]: newContent }
+    const rawSection = (generatedPlan as any)[sectionKey];
+    let updatedSectionValue: any;
+    if (typeof rawSection === "object") {
+      // Remove ```json and ``` fences if OpenAI wrapped the JSON
+      let text = (newContent as string).trim();
+      if (text.startsWith("```")) {
+        // drop first ```json line, drop trailing ```
+        text = text
+          .replace(/^```(?:json)?\n/, "")
+          .replace(/\n```$/, "")
+          .trim();
+      }
+      updatedSectionValue = JSON.parse(text);
+    } else {
+      updatedSectionValue = newContent;
+    }
+    const updatedPlan = {
+      ...generatedPlan,
+      [sectionKey]: updatedSectionValue,
+    };
+
+    setGeneratedPlan(updatedPlan)
+    setEditingSection(null)
+
+    // 2) fire off the PATCH to /api/plans/[planId]
+    const res = await fetch(`/api/plans/${planId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedPlan),
+    })
+    const { success, error } = await res.json()
+
+    // 3) show feedback
+    if (!success) {
+      toast({
+        variant: "destructive",
+        title: "Save failed",
+        description: error || "Unable to persist your changes.",
+      })
+    } else {
       toast({
         title: "Section Updated",
-        description: "Your changes have been applied to the plan.",
+        description: "Your edits have been saved to the database.",
       })
     }
   }
@@ -389,118 +463,71 @@ export default function PlanBuilderClient() {
     return str.replace(/\b\w/g, (char) => char.toUpperCase())
   }
 
-  const handleDownload = async () => {
-    // 1) Guard: ensure we have a plan
-    if (!generatedPlan) {
-      console.error('🚫 No plan available to download')
-      return
-    }
-    console.log('🔷 Download clicked (top-bar)', generatedPlan)
+//   const handleDownload = () => {
+//   // 1) grab the plan HTML
+//   const container = document.getElementById("plan-container")
+//   if (!container) {
+//     console.error("🛑 No plan-container element found")
+//     return
+//   }
 
-    // Determine the title text and filename base
-    const titleText = planData.businessName || 'Business Plan'
-    const displayTitle = capitalizeWords(titleText)
-    const fileBase  = titleText
-      .toLowerCase()
-      .replace(/\s+/g, '-')
-      .replace(/[^a-z0-9\-]/g, '')
+//   // 2) wrap it in minimal HTML + CSS for Word
+//   const html = `
+//     <html>
+//       <head>
+//         <style>
+//           /* tweak these to suit your branding */
+//           h1 { font-size: 24pt; color: #333; margin-bottom: 0.5em; }
+//           h2 { font-size: 18pt; margin-top: 1em; margin-bottom: 0.25em; }
+//           p  { font-size: 11pt; line-height: 1.5; margin: 0.25em 0; }
+//           /* tables, lists, images, etc. will follow your existing page CSS */
+//         </style>
+//       </head>
+//       <body>${container.innerHTML}</body>
+//     </html>
+//   `
 
-    // 2) Build the .docx document
-    // pull out our nested plan shape
-    const {
-      executiveSummary,
-      situationAnalysis,
-      swotAnalysis,
-      marketingPlan,
-      serviceStrategy,
-      operationsPlan,
-      managementTeam,
-      financialProjections,
-      riskMitigation,
-    } = generatedPlan
+//   // 3) convert to a .docx blob
+//   const blob = htmlDocx.asBlob(html)
 
-    const doc = new Document({
-      sections: [
-        {
-          children: [
-            // Title
-            new Paragraph({
-              text: displayTitle,
-              heading: HeadingLevel.TITLE,
-            }),
+//   // 4) download with a clean filename
+//   const base = planData.businessName
+//     ? planData.businessName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "")
+//     : "business-plan"
+//   saveAs(blob, `${base}.docx`)
+// }
 
-            // 1. Executive Summary
-            new Paragraph({ text: 'Executive Summary', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph({ text: 'Business Overview', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(executiveSummary.businessOverview),
-            new Paragraph({ text: 'Business Origins', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(executiveSummary.businessOrigins),
-            new Paragraph({ text: 'Competitive Advantage', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(executiveSummary.competitiveAdvantage),
-            new Paragraph({ text: 'Financial Summary', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(executiveSummary.financialSummary),
-
-            // 2. Situation Analysis
-            new Paragraph({ text: 'Situation Analysis', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph({ text: 'Industry Overview', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(situationAnalysis.industryOverview),
-            new Paragraph({ text: 'Key Market Trends', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(situationAnalysis.keyMarketTrends),
-
-            // 3. SWOT Analysis
-            new Paragraph({ text: 'SWOT Analysis', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph({ text: 'Strengths', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(swotAnalysis.strengths),
-            new Paragraph({ text: 'Weaknesses', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(swotAnalysis.weaknesses),
-            new Paragraph({ text: 'Opportunities', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(swotAnalysis.opportunities),
-            new Paragraph({ text: 'Threats', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(swotAnalysis.threats),
-
-            // 4. Marketing Plan
-            new Paragraph({ text: 'Marketing Plan', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph({ text: 'Business Objectives', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(marketingPlan.businessObjectives),
-            new Paragraph({ text: 'Segmentation, Targeting & Positioning', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(marketingPlan.segmentationTargetingPositioning),
-            new Paragraph({ text: '4Ps (Product, Price, Place, Promotion)', heading: HeadingLevel.HEADING_2 }),
-            new Paragraph(marketingPlan.marketingMix4Ps),
-
-            // 5. Service Strategy
-            new Paragraph({ text: 'Service Strategy', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph(serviceStrategy),
-
-            // 6. Operations Plan
-            new Paragraph({ text: 'Operations Plan', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph(operationsPlan),
-
-            // 7. Management Team
-            new Paragraph({ text: 'Management Team', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph(managementTeam),
-
-            // 8. Financial Projections
-            new Paragraph({ text: 'Financial Projections', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph(financialProjections),
-
-            // 9. Risk & Mitigation
-            new Paragraph({ text: 'Risk & Mitigation', heading: HeadingLevel.HEADING_1 }),
-            new Paragraph(riskMitigation),
-          ],
-        },
-      ],
-    })
-
-    console.log('🔷 Document built')
-
-    // 3) Convert to a Blob
-    const blob = await Packer.toBlob(doc)
-    console.log('🔷 Blob created')
-
-    // 4) Trigger download in browser
-    saveAs(blob, `${titleText.toLowerCase().replace(/\s+/g,'-')}.docx`)
-    console.log('🔷 saveAs invoked')
+const handleDownload = () => {
+  if (generatedPlan) {
+    exportBusinessPlanDocx(planData, generatedPlan)
   }
+}
+
+
+// const handleDownload = async () => {
+//   if (!generatedPlan) return;
+
+//   try {
+//     const res = await fetch("/api/generate-pdf", {
+//       method: "POST",
+//       headers: { "Content-Type": "application/json" },
+//       body: JSON.stringify({ planData, generatedPlan }),
+//     });
+//     if (!res.ok) {
+//       console.error("PDF gen failed:", await res.text());
+//       return;
+//     }
+//     const blob = await res.blob();
+//     const fileName =
+//       planData.businessName
+//         .toLowerCase()
+//         .replace(/\s+/g, "-")
+//         .replace(/[^a-z0-9\-]/g, "") + ".pdf";
+//     saveAs(blob, fileName);
+//   } catch (err) {
+//     console.error("Network error:", err);
+//   }
+// };
 
 
 
@@ -512,54 +539,65 @@ const handleBackToDashboard = () => {
   }
 }
 
-
-
-
+const rawValue =
+  editingSection && generatedPlan
+    ? (generatedPlan as any)[editingSection]
+    : ""
+const sectionText =
+  typeof rawValue === "object"
+    ? JSON.stringify(rawValue, null, 2)
+    : (rawValue as string)
 
   /* ----------------------------------------------------------------------- */
 
   return (
-    <div className="min-h-screen bg-gray-50">
-      <PlanBuilderTopBar
-          planTitle={planData.businessName || "Untitled Business Plan"}
-          onTitleChange={(title) => {
-            setPlanData(prev => ({ ...prev, businessName: title }))
-            setHasUnsavedChanges(true)
-          }}
-          onSave={handleSavePlan}  
-          stage={stage}
-          onBackToDashboard={handleBackToDashboard}
-        />
-      <div className="h-[calc(100vh-80px)] overflow-y-auto">
-         {stage === "quiz" && (
+    <div className="flex h-screen flex-col bg-gray-50">
+      {/* Top Bar */}
+     
+
+      <div className="flex-1 overflow-y-auto">
+        {/* Quiz Stage */}
+        {stage === "quiz" && (
           <QuizInterface
-              data={planData}
-              onChange={handleDataChange}
-              onGeneratePlan={handleGeneratePlan}
-            />
-          )}
+            data={planData}
+            onChange={handleDataChange}
+            onGeneratePlan={handleGeneratePlan}
+          />
+        )}
 
-        {stage === "generating" && <GenerationScreen businessName={planData.businessName || "Your Business"} />}
+        {/* Generating Stage */}
+        {stage === "generating" && (
+          <GenerationScreen
+            businessName={planData.businessName || "Your Business"}
+          />
+        )}
 
+        {/* Output Stage */}
         {stage === "output" && generatedPlan && (
-            <>
-              <PlanOutput
-                planData={planData}
-                generatedPlan={generatedPlan}
-                onEditSection={setEditingSection}
-                onDownload={handleDownload}
-              />
-            </>
-          )}
+          <div id="plan-container">
+            {/* <h1>{planData.businessName} — Business Plan</h1> */}
+            <PlanOutput
+              planData={planData}
+              generatedPlan={generatedPlan}
+              onEditSection={setEditingSection}
+              onDownload={handleDownload}
+              
+            />
+          </div>
+        )}
       </div>
 
       {/* Chat Edit Modal */}
-      <ChatEditModal
+      <EditSectionModal
         isOpen={!!editingSection}
         onClose={() => setEditingSection(null)}
         sectionName={editingSection || ""}
-        currentContent={editingSection && generatedPlan ? generatedPlan[editingSection as keyof GeneratedPlan] : ""}
-        onSave={(newContent) => editingSection && handleSectionEdit(editingSection, newContent)}
+        currentContent={
+          editingSection && typeof (generatedPlan as any)[editingSection] === "object"
+            ? JSON.stringify((generatedPlan as any)[editingSection], null, 2)
+            : (sectionText as string)
+        }
+        onSave={(sectionKey, newContent) => void handleSectionEdit(sectionKey, newContent)}
       />
 
       {/* Unsaved Changes Modal */}
@@ -567,251 +605,15 @@ const handleBackToDashboard = () => {
         isOpen={showUnsavedModal}
         onClose={() => setShowUnsavedModal(false)}
         onSave={() => {
-          setHasUnsavedChanges(false)
-          setShowUnsavedModal(false)
-          window.history.back()
+          setHasUnsavedChanges(false);
+          setShowUnsavedModal(false);
+          window.history.back();
         }}
         onDiscard={() => {
-          setShowUnsavedModal(false)
-          window.history.back()
+          setShowUnsavedModal(false);
+          window.history.back();
         }}
       />
     </div>
-  )
-}
-
-/* -------------------------------------------------------------------------- */
-/*                       Helper functions (local mock AI)                      */
-/* -------------------------------------------------------------------------- */
-
-function generateExecutiveSummary(data: BusinessPlanData): string {
-  const businessName = data.businessName || "Your Business"
-  const businessModel = data.businessModel || "business"
-  const description = data.description || "innovative solution"
-  const location = data.location || "target market"
-  const teamSize = data.teamSize || "dedicated team"
-  const revenue = data.monthlyRevenue || "projected revenue"
-
-  return `${businessName} is ${
-    businessModel === "saas"
-      ? "a Software-as-a-Service (SaaS)"
-      : businessModel === "d2c"
-        ? "a Direct-to-Consumer (D2C)"
-        : businessModel === "services"
-          ? "a professional services"
-          : businessModel === "marketplace"
-            ? "a marketplace"
-            : "an innovative"
-  } business focused on ${description.toLowerCase()}. ${
-    location ? `Operating primarily in ${location}, ` : ""
-  }we are positioned to capture significant market share through our unique value proposition and strategic approach.
-
-Our business is currently in the ${data.businessStage || "development"} stage, with ${
-    teamSize ? `a ${teamSize}` : "a dedicated team"
-  } committed to delivering exceptional value to our customers. ${
-    data.visionStatement
-      ? `Our vision is to ${data.visionStatement.toLowerCase()}`
-      : "We are driven by a clear vision for growth and market leadership."
-  } 
-
-${
-  data.uniqueSellingPoint
-    ? `What sets us apart is ${data.uniqueSellingPoint.toLowerCase()}.`
-    : "Our competitive advantage lies in our innovative approach and customer-centric focus."
-} ${
-    revenue ? `With current monthly revenue of ${formatCurrency(revenue)}, ` : ""
-  }we are well-positioned for sustainable growth and expansion.`
-}
-
-function generateMarketAnalysis(data: BusinessPlanData): string {
-  const targetAudience = data.targetAudience || "target customers"
-  const location = data.location || "our target market"
-  const marketSize = data.marketSize || "significant market opportunity"
-
-  return `Our target market consists of ${targetAudience.toLowerCase()}${
-    location ? ` primarily located in ${location}` : ""
-  }. ${
-    marketSize ? `The market size is estimated at ${marketSize}, ` : ""
-  }representing a substantial opportunity for growth and market penetration.
-
-Market research indicates strong demand for ${
-    data.productName || "our solution"
-  }, particularly among ${targetAudience.toLowerCase()}. Key market trends supporting our business include the increasing adoption of ${
-    data.businessModel === "saas"
-      ? "cloud-based solutions"
-      : data.businessModel === "d2c"
-        ? "direct-to-consumer purchasing"
-        : data.businessModel === "services"
-          ? "professional services"
-          : "innovative business models"
-  } and the growing need for ${data.description || "our type of solution"}.
-
-The competitive landscape presents both challenges and opportunities. While there are established players in the market, our unique positioning and ${
-    data.uniqueSellingPoint || "innovative approach"
-  } provide significant competitive advantages that will enable us to capture market share effectively.`
-}
-
-function generateProductStrategy(data: BusinessPlanData): string {
-  const productName = data.productName || "Our Solution"
-  const features =
-    data.keyFeatures.filter((f) => f.trim()).length > 0
-      ? data.keyFeatures.filter((f) => f.trim())
-      : ["Core functionality", "User-friendly interface", "Scalable architecture"]
-  const usp = data.uniqueSellingPoint || "innovative approach to solving customer problems"
-
-  return `${productName} is designed to ${
-    data.description || "deliver exceptional value to our customers"
-  }. Our solution addresses key market needs through a comprehensive approach that combines functionality, usability, and innovation.
-
-**Key Features:**
-${features.map((feature) => `• ${feature}`).join("\n")}
-
-**Product Differentiation:**
-${usp}. This unique positioning allows us to stand out in a competitive market and provide superior value to our customers.
-
-**Development Roadmap:**
-Our product development strategy focuses on continuous improvement and feature enhancement based on customer feedback and market demands. We plan to ${
-    data.shortTermGoal
-      ? `achieve ${data.shortTermGoal.toLowerCase()} in the short term`
-      : "expand our feature set significantly"
-  } while maintaining our core value proposition.`
-}
-
-function generateMarketingStrategy(data: BusinessPlanData): string {
-  const channels =
-    data.marketingChannels.length > 0
-      ? data.marketingChannels
-      : ["Digital Marketing", "Content Marketing", "Social Media"]
-  const pricing = data.pricingStrategy || "competitive pricing"
-  const salesTeam = data.hasSalesTeam
-
-  return `Our marketing strategy is built around a multi-channel approach designed to reach ${
-    data.targetAudience || "our target customers"
-  } effectively and efficiently.
-
-**Marketing Channels:**
-${channels
-  .map((channel) => `• ${channel}: Targeted campaigns to reach potential customers through ${channel.toLowerCase()}`)
-  .join("\n")}
-
-**Pricing Strategy:**
-We have adopted a ${pricing} model that provides excellent value while ensuring sustainable profitability. Our pricing is competitive within the market while reflecting the premium value we deliver.
-
-**Sales Approach:**
-${
-  salesTeam
-    ? "Our dedicated sales team will focus on building relationships with key prospects and converting leads into customers."
-    : "We will leverage a self-service sales model complemented by strong marketing automation and customer success initiatives."
-} This approach ensures efficient customer acquisition while maintaining high conversion rates.
-
-**Customer Acquisition:**
-Our customer acquisition strategy focuses on ${
-    data.marketingChannels.includes("SEO") ? "organic search visibility, " : ""
-  }${data.marketingChannels.includes("Ads") ? "targeted advertising, " : ""}${
-    data.marketingChannels.includes("Social Media") ? "social media engagement, " : ""
-  }${
-    data.marketingChannels.includes("Referrals") ? "referral programs" : "content marketing"
-  } to build a sustainable pipeline of qualified prospects.`
-}
-
-function generateOperationsStrategy(data: BusinessPlanData): string {
-  const location = data.operationLocation || "strategic location"
-  const legalStructure = data.legalStructure || "appropriate legal structure"
-  const teamSize = data.teamSize || "right-sized team"
-  const founderRole = data.founderRole || "leadership role"
-
-  return `Our operations strategy is designed to ensure efficient delivery of our products/services while maintaining high quality standards and customer satisfaction.
-
-**Operational Structure:**
-We operate from ${location} under a ${legalStructure} legal structure. Our ${teamSize} is strategically organized to maximize efficiency and expertise across all business functions.
-
-**Key Operational Areas:**
-• **Leadership:** ${
-    founderRole ? `Led by our ${founderRole}, ` : ""
-  }our management team brings extensive experience and expertise to drive business success  
-• **Quality Control:** Rigorous quality assurance processes ensure consistent delivery of high-quality products/services  
-• **Technology Infrastructure:** Robust systems and processes support scalable operations and efficient service delivery  
-• **Customer Support:** Dedicated customer success initiatives ensure high satisfaction and retention rates
-
-**Operational Efficiency:**
-We focus on continuous improvement and optimization of our operational processes. This includes regular performance monitoring, process refinement, and technology upgrades to maintain competitive advantage and operational excellence.`
-}
-
-function generateFinancialProjections(data: BusinessPlanData): string {
-  const initialInvestment = data.initialInvestment || "startup capital"
-  const monthlyRevenue = data.monthlyRevenue || "0"
-  const monthlyExpenses = data.monthlyExpenses || "0"
-  const fundingNeeded = data.fundingNeeded || "additional funding"
-
-  const revenue = Number.parseFloat(monthlyRevenue.replace(/[$,]/g, "")) || 0
-  const expenses = Number.parseFloat(monthlyExpenses.replace(/[$,]/g, "")) || 0
-  const annualRevenue = revenue * 12
-  const annualExpenses = expenses * 12
-  const grossMargin = revenue > 0 ? (((revenue - expenses) / revenue) * 100).toFixed(1) : "0"
-
-  return `Our financial projections demonstrate strong growth potential and path to profitability based on conservative market assumptions and operational efficiency.
-
-**Current Financial Position:**
-• Monthly Revenue: ${formatCurrency(monthlyRevenue)}  
-• Monthly Expenses: ${formatCurrency(monthlyExpenses)}  
-• Gross Margin: ${grossMargin}%  
-• Annual Revenue Projection: ${formatCurrency(annualRevenue.toString())}
-
-**Investment Requirements:**
-• Initial Investment: ${formatCurrency(initialInvestment)}  
-${data.fundingNeeded ? `• Additional Funding Needed: ${formatCurrency(fundingNeeded)}` : ""}
-
-**Investment Utilization:**
-${
-  data.investmentUtilization.filter((item) => item.item.trim()).length > 0
-    ? data.investmentUtilization
-        .filter((item) => item.item.trim())
-        .map((item) => `• ${item.item}: ${formatCurrency(item.amount)}`)
-        .join("\n")
-    : "• Product Development: 40%\n• Marketing & Sales: 30%\n• Operations: 20%\n• Working Capital: 10%"
-}
-
-**Growth Projections:**
-Based on market analysis and operational capacity, we project ${
-    data.businessStage === "growth" ? "25-35%" : data.businessStage === "early-revenue" ? "50-75%" : "100-200%"
-  } annual growth over the next 3 years, driven by market expansion and operational scaling.`
-}
-
-function generateMilestonesAndTraction(data: BusinessPlanData): string {
-  const achievements =
-    data.achievements.filter((a) => a.trim()).length > 0 ? data.achievements.filter((a) => a.trim()) : []
-  const upcomingMilestone = data.upcomingMilestone || "key business objectives"
-
-  return `${
-    achievements.length > 0
-      ? "Our track record demonstrates consistent progress and achievement of key business milestones."
-      : "We are focused on achieving key milestones that will drive business growth and market success."
-  }
-
-${
-  achievements.length > 0
-    ? `**Key Achievements:**\n${achievements
-        .map((achievement) => `• ${achievement}`)
-        .join(
-          "\n",
-        )}\n\nThese achievements validate our business model and demonstrate our ability to execute on our strategic vision.`
-    : ""
-}
-
-**Upcoming Milestones:**  
-${
-  upcomingMilestone
-    ? upcomingMilestone
-    : "Our immediate focus is on achieving product-market fit, scaling our customer base, and establishing sustainable revenue growth. Key milestones include customer acquisition targets, product development goals, and operational efficiency improvements."
-}
-
-**Success Metrics:**  
-We track key performance indicators including customer acquisition cost, lifetime value, monthly recurring revenue${
-    data.businessModel === "saas" ? ", churn rate" : ""
-  }, and customer satisfaction scores to ensure we are meeting our growth objectives and maintaining operational excellence.`
-}
-
-function formatCurrency(value: string): string {
-  if (!value) return "Not specified"
-  return value.startsWith("$") ? value : `$${value}`
+  );
 }

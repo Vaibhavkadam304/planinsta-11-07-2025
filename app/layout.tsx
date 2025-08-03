@@ -3,6 +3,7 @@ import React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { ClientProviders } from "@/components/ClientProviders"
+import { Toaster } from "@/components/ui/toaster" // ✅ Add this
 
 export const metadata: Metadata = {
   title: "PlanInsta Dashboard - AI Business Plan Builder",
@@ -18,9 +19,10 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* client-only providers */}
+        {/* ✅ Wrap toaster inside provider to enable toast globally */}
         <ClientProviders>
           {children}
+          <Toaster />
         </ClientProviders>
       </body>
     </html>

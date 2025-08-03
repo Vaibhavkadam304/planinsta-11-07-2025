@@ -89,7 +89,9 @@ export default function SignUpPage() {
         data: { full_name: formData.fullName },
       },
     })
-
+    
+    await supabase.auth.signOut();
+    
     if (signUpError) {
       toast({
         title: "Error creating account",

@@ -2,44 +2,89 @@
 import Link from "next/link"
 import { cookies, headers } from "next/headers"
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
-import { Card, CardContent, CardTitle } from "@/components/ui/card"
+import PlansList from "./PlansList"
 
 export default async function MyPlansPage() {
-  const supabase = createServerComponentClient({ cookies, headers })
-  const { data: { user } } = await supabase.auth.getUser()
+  const cookieStore = await cookies()
+  const headerList = await headers()
+  const supabase = createServerComponentClient({
+    cookies: () => cookieStore,
+    headers: () => headerList,
+  })
+
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
   if (!user) return <p className="p-8 text-center">Please sign in.</p>
 
-  const { data: plans } = await supabase
+  const { data: plans = [] } = await supabase
     .from("business_plans")
     .select("id, plan_name, created_at")
     .eq("user_id", user.id)
+    .is("trashed_at", null)
     .order("created_at", { ascending: false })
 
+  async function moveToTrash(id: string) {
+    "use server"
+    const sb = createServerComponentClient({
+      cookies: () => cookies(),
+      headers: () => headers(),
+    })
+    const {
+      data: { user },
+    } = await sb.auth.getUser()
+    if (!user) return
+    await sb
+      .from("business_plans")
+      .update({ trashed_at: new Date().toISOString() })
+      .eq("id", id)
+      .eq("user_id", user.id)
+  }
+
   return (
-    <div className="max-w-4xl mx-auto p-8 space-y-6">
-      <h1 className="text-3xl font-bold">My Plans</h1>
-      {plans && plans.length > 0 ? (
-        plans.map((plan) => (
-          <Card key={plan.id} className="border">
-            <CardContent className="flex justify-between items-center">
-              <div>
-                <CardTitle>{plan.plan_name}</CardTitle>
-                <p className="text-sm text-gray-500">
-                  Created on {new Date(plan.created_at).toLocaleDateString()}
-                </p>
-              </div>
-              <Link
-                href={`/dashboard/plans/${plan.id}`}
-                className="text-blue-600 hover:underline"
-              >
-                Open
-              </Link>
-            </CardContent>
-          </Card>
-        ))
+    <div className="mx-auto max-w-6xl px-6 py-10 space-y-8">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
+        {/* <h1 className="text-3xl font-bold tracking-tight">My Plans</h1> */}
+
+        <div className="flex gap-3">
+          {/* <Link
+            href="/dashboard/trash"
+            className="inline-flex h-10 items-center justify-center rounded-md border px-5 text-sm font-medium hover:bg-gray-50 transition"
+          >
+            Trash
+          </Link> */}
+
+          {/* <a
+            href="/plan-builder"
+            className="inline-flex h-10 items-center justify-center rounded-md bg-primary px-6 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition"
+          >
+            + New Plan
+          </a> */}
+        </div>
+      </div>
+
+      {plans.length ? (
+        <PlansList initialPlans={plans} moveToTrash={moveToTrash} />
       ) : (
-        <p>No plans yet. Create one first!</p>
+        <EmptyState />
       )}
+    </div>
+  )
+}
+
+function EmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center py-24 text-center space-y-4 border border-dashed rounded-lg">
+      <p className="text-lg font-medium">No plans yet</p>
+      <p className="text-sm text-muted-foreground max-w-sm">
+        Create your first AI-generated business plan and manage it here.
+      </p>
+      <a
+        href="/dashboard/new"
+        className="mt-4 inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow hover:bg-primary/90 transition"
+      >
+        Create a Plan
+      </a>
     </div>
   )
 }

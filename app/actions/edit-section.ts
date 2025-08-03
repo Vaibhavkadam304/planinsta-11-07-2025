@@ -1,51 +1,100 @@
-"use server"
+// app/actions/edit-section.ts
+"use server";
 
-import { openai } from "@ai-sdk/openai"
-import { generateText } from "ai"
+import { Configuration, OpenAIApi, ChatCompletionRequestMessage } from "openai";
+
+// helper to drop any ```json fences```
+function stripFences(text: string): string {
+  let t = text.trim();
+  if (t.startsWith("```")) {
+    // remove leading ``` or ```json line
+    t = t.replace(/^```(?:json)?\r?\n/, "");
+  }
+  if (t.endsWith("```")) {
+    // remove trailing ```
+    t = t.replace(/\r?\n```$/, "");
+  }
+  return t.trim();
+}
 
 export async function editPlanSection(
   sectionName: string,
   currentContent: string,
   userInstruction: string,
   businessName: string,
-  industry = "technology",
-) {
+  industry = "technology"
+): Promise<
+  | { success: true; content: string }
+  | { success: false; error: string }
+> {
   try {
-    const systemPrompt = `You are an expert business plan editor. Your job is to improve specific sections of business plans based on user feedback.
+    // 1) init v3 client
+    const config = new Configuration({
+      apiKey: process.env.OPENAI_API_KEY,
+    });
+    const client = new OpenAIApi(config);
+
+    // 2) build your messages
+    const messages: ChatCompletionRequestMessage[] = [
+      {
+        role: "system",
+        content: `You are an expert business‑plan editor. Improve a single section based on user feedback and return the _entire_ section as JSON.
 
 CURRENT SECTION: ${sectionName}
-CURRENT CONTENT: ${currentContent}
 
-USER REQUEST: ${userInstruction}
+CURRENT CONTENT:
+${currentContent}
 
-CONTEXT: This is part of a larger business plan for ${businessName} in the ${industry} industry.
+CONTEXT: Part of a business plan for ${businessName} (${industry}).
 
-REQUIREMENTS:
-1. Maintain professional business language
-2. Keep the same general structure and length
-3. Incorporate the user's specific feedback
-4. Ensure consistency with the overall business plan
-5. Make it more compelling and investor-ready
-6. Don't change factual data unless specifically requested
+Requirements:
+• Keep professional tone  
+• Preserve structure & length  
+• Incorporate feedback: "${userInstruction}"  
+• Don’t invent or remove factual data unless asked  
+• Return only the edited section as a JSON object, with no extra text or markdown fences.
 
-EXAMPLES OF GOOD EDITS:
-- "Make this more investor-friendly" → Add ROI projections, market size data, competitive advantages
-- "Add more detail about our technology" → Expand technical specifications, development timeline, IP protection
-- "Make it sound more confident" → Use stronger language, add specific achievements, quantify benefits
+For example, if the section is \`managementOrganization\`, respond exactly:
 
-OUTPUT: Return only the improved section content, maintaining the same format as the original.`
+\`\`\`json
+{
+  "overview": "...edited overview…",
+  "organizationalChart": "...existing or edited…",
+  "hiringPlanKeyRoles": "...existing or edited…"
+}
+\`\`\`
+`
+      },
+      {
+        role: "user",
+        content: `Please rewrite the above section according to the instruction: "${userInstruction}"`
+      }
+    ];
 
-    const userPrompt = `Rewrite the section based on the user's request: "${userInstruction}"`
+    // 3) call Chat Completion
+    const completion = await client.createChatCompletion({
+      model: "gpt-4o",
+      messages,
+      temperature: 0.7,
+    });
 
-    const { text } = await generateText({
-      model: openai("gpt-4o"),
-      system: systemPrompt,
-      prompt: userPrompt,
-    })
+    // 4) extract, strip fences, and parse AI JSON
+    const raw = completion.data.choices?.[0]?.message?.content;
+    if (!raw) throw new Error("OpenAI returned no content");
+    const clean = stripFences(raw);
+    const updatedSectionObj = JSON.parse(clean);
 
-    return { success: true, content: text }
-  } catch (error) {
-    console.error("Error editing section:", error)
-    return { success: false, error: "Failed to edit section" }
+    // 5) merge with original so untouched keys survive
+    const originalSection =
+      typeof currentContent === "string"
+        ? JSON.parse(currentContent)
+        : currentContent;
+    const merged = { ...originalSection, ...updatedSectionObj };
+
+    // 6) return a stringified JSON for the front end
+    return { success: true, content: JSON.stringify(merged, null, 2) };
+  } catch (err: any) {
+    console.error("Error editing section:", err);
+    return { success: false, error: err.message || "Edit failed" };
   }
 }

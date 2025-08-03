@@ -1,8 +1,9 @@
 // app/dashboard/payments/page.tsx
-import ProtectedRoute from "@/components/ProtectedRoute";
-import DashboardLayout from "@/components/dashboard-layout";
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
+import { notFound } from "next/navigation";
+import ProtectedRoute from "@/components/ProtectedRoute";
+import DashboardLayout from "@/components/dashboard-layout";
 
 interface Payment {
   id: string;
@@ -13,23 +14,34 @@ interface Payment {
 }
 
 export default async function PaymentsPage() {
-  const supabase = createServerComponentClient({ cookies });
+  const supabase = createServerComponentClient({ cookies: () => cookies() });
+
   const {
     data: { user },
   } = await supabase.auth.getUser();
-  if (!user?.id) return <p>Please sign in.</p>;
 
-  const { data: payments } = await supabase
+  if (!user?.id) notFound(); // or return <p>Please sign in.</p>
+
+  const { data: payments, error } = await supabase
     .from<Payment>("payments")
     .select("id, amount, currency, status, paid_at")
-    .eq("user_id", user.id)
+    .eq("user_id", user.id) // ✅ only this user’s payments
     .order("paid_at", { ascending: false });
+
+  if (error) {
+    console.error(error);
+    return <p>Failed to load payments.</p>;
+  }
 
   return (
     <ProtectedRoute>
-      <DashboardLayout currentPage="payments" userName={(user.user_metadata as any).full_name}>
+      <DashboardLayout
+        currentPage="payments"
+        userName={(user.user_metadata as any)?.full_name}
+      >
         <h1 className="text-2xl mb-4">Payment History</h1>
-        {!payments || payments.length === 0 ? (
+
+        {!payments?.length ? (
           <p>No payments yet.</p>
         ) : (
           <table className="w-full border">
@@ -43,7 +55,9 @@ export default async function PaymentsPage() {
             <tbody>
               {payments.map((p) => (
                 <tr key={p.id} className="odd:bg-white even:bg-gray-100">
-                  <td className="p-2">{new Date(p.paid_at).toLocaleString()}</td>
+                  <td className="p-2">
+                    {new Date(p.paid_at).toLocaleString()}
+                  </td>
                   <td className="p-2 text-right">
                     {p.currency} {(p.amount / 100).toFixed(2)}
                   </td>

@@ -18,9 +18,7 @@ import {
   Shield,
   FileText as AppendixIcon,
   CheckCircle,
-  Zap,
 } from "lucide-react"
-import Link from "next/link"
 import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/page"
 
 interface PlanOutputProps {
@@ -38,10 +36,6 @@ export function PlanOutput({
 }: PlanOutputProps) {
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const businessName = planData.businessName || "Your Business"
-  const [openSection, setOpenSection] = useState<string | null>(null)
-  const toggleSection = (key: string) => {
-    setOpenSection(openSection === key ? null : key)
-  }
 
   const sections = [
     {
@@ -49,12 +43,6 @@ export function PlanOutput({
       title: "Executive Summary",
       description: "Business overview, funding, milestones, problem & solution",
       icon: FileText,
-      subsections: [
-        { key: "businessOverview", title: "Business Overview" },
-        { key: "fundingRequirements", title: "Funding Requirements & Usage" },
-        { key: "pastMilestones", title: "Past Milestones" },
-        { key: "problemSolution", title: "Problem Statement & Solution" },
-      ],
       render: () => (
         <>
           <h3 id="executiveSummary" className="font-bold">Business Overview</h3>
@@ -81,15 +69,6 @@ export function PlanOutput({
       title: "Company Overview",
       description: "Vision, mission, background, team, values & objectives",
       icon: Package,
-      subsections: [
-        { key: "visionStatement", title: "Vision Statement" },
-        { key: "missionStatement", title: "Mission Statement" },
-        { key: "companyHistoryBackground", title: "Company History & Background" },
-        { key: "foundingTeam", title: "Founding Team" },
-        { key: "legalStructureOwnership", title: "Legal Structure & Ownership" },
-        { key: "coreValuesCulture", title: "Core Values & Culture" },
-        { key: "companyObjectives", title: "Company Objectives" },
-      ],
       render: () => (
         <>
            <h3 id="companyOverview" className="font-bold">Vision Statement</h3>
@@ -128,17 +107,6 @@ export function PlanOutput({
       title: "Products",
       description: "Overview, details, USPs, roadmap & IP status",
       icon: Target,
-      subsections: [
-        { key: "overview", title: "Overview" },
-        // dynamically generate Product 1–10
-        ...Array.from({ length: 10 }, (_, i) => ({
-          key: `product${i + 1}`,
-          title: `Product ${i + 1}`,
-        })),
-        { key: "uniqueSellingPropositions", title: "Unique Selling Propositions (USPs)" },
-        { key: "developmentRoadmap", title: "Development Roadmap" },
-        { key: "intellectualPropertyRegulatoryStatus", title: "Intellectual Property & Regulatory Status" },
-      ],
       render: () => (
         <>
           <h3 id="products" className="font-bold">Overview</h3>
@@ -171,17 +139,6 @@ export function PlanOutput({
       title: "Market Analysis",
       description: "Industry overview, trends, segmentation & competition",
       icon: Target,
-      subsections: [
-        { key: "industryOverviewSize", title: "Industry Overview & Size" },
-        { key: "growthTrendsDrivers", title: "Growth Trends & Drivers" },
-        { key: "underlyingBusinessDrivers", title: "Underlying Business Drivers" },
-        { key: "targetMarketSegmentation", title: "Target Market Segmentation" },
-        { key: "customerPersonasNeeds", title: "Customer Personas & Their Needs" },
-        { key: "competitiveLandscapePositioning", title: "Competitive Landscape & Positioning" },
-        { key: "productsDifferentiation", title: "Products’ Differentiation" },
-        { key: "barriersToEntry", title: "Barriers to Entry" },
-      ],
-      
       render: () => (
         <>
           <h3 id="marketAnalysis" className="font-bold">Industry Overview &amp; Size</h3>
@@ -224,13 +181,6 @@ export function PlanOutput({
       title: "Marketing & Sales Strategies",
       description: "Channels, cost structure, pricing & retention",
       icon: Users,
-      subsections: [
-        { key: "distributionChannels", title: "Distribution Channels" },
-        { key: "technologyCostStructure", title: "Technology Cost Structure" },
-        { key: "customerPricingStructure", title: "Customer Pricing Structure" },
-        { key: "retentionStrategies", title: "Retention Strategies" },
-        { key: "integratedFunnelFinancialImpact", title: "Integrated Funnel & Financial Impact" },
-      ],
       render: () => (
         <>
           <h3 id="marketingSalesStrategies" className="font-bold">Distribution Channels</h3>
@@ -261,14 +211,6 @@ export function PlanOutput({
       title: "Operations Plan",
       description: "Structure, workflow & KPIs",
       icon: TrendingUp,
-      subsections: [
-        { key: "overview", title: "Overview" },
-        { key: "organizationalStructureTeamResponsibilities", title: "Organizational Structure & Team Responsibilities" },
-        { key: "infrastructure", title: "Infrastructure" },
-        { key: "customerOnboardingToRenewalWorkflow", title: "Customer Onboarding-to-Renewal Workflow" },
-        { key: "crossFunctionalCommunicationDecisionMaking", title: "Cross-Functional Communication & Decision-Making" },
-        { key: "keyPerformanceMetricsGoals", title: "Key Performance Metrics & Goals" },
-      ],
       render: () => (
         <>
           <h3 id="operationsPlan" className="font-bold">Overview</h3>
@@ -299,11 +241,6 @@ export function PlanOutput({
       title: "Management & Organization",
       description: "Chart, roles & hiring plan",
       icon: Users,
-      subsections: [
-        { key: "overview", title: "Overview" },
-        { key: "organizationalChart", title: "Organizational Chart" },
-        { key: "hiringPlanKeyRoles", title: "Hiring Plan & Key Roles" },
-      ],
       render: () => (
         <>
           <h3 className="font-bold">Overview</h3>
@@ -326,19 +263,6 @@ export function PlanOutput({
       title: "Financial Plan",
       description: "Assumptions, forecasts, P&L, cash flow & metrics",
       icon: DollarSign,
-      subsections: [
-        { key: "overview", title: "Overview" },
-        { key: "keyAssumptions", title: "Key Assumptions" },
-        { key: "revenueForecast", title: "Revenue Forecast" },
-        { key: "cogs", title: "Cost of Goods Sold (COGS)" },
-        { key: "opEx", title: "Operating Expenses (OpEx)" },
-        { key: "projectedPnl", title: "Projected Profit & Loss Statement (P&L)" },
-        { key: "cashFlowRunwayAnalysis", title: "Cash Flow & Runway Analysis" },
-        { key: "keyFinancialMetricsRatios", title: "Key Financial Metrics & Ratios" },
-        { key: "useOfFundsRunway", title: "Use of Funds & Runway" },
-        { key: "keySensitivityRiskScenarios", title: "Key Sensitivity & Risk Scenarios" },
-        { key: "summaryOutlook", title: "Summary & Outlook" },
-      ],
       render: () => (
         <>
           <h3 id="financialPlan" className="font-bold">Overview</h3>
@@ -476,14 +400,6 @@ export function PlanOutput({
       title: "Risk Analysis & Mitigation",
       description: "All categories of risk and contingencies",
       icon: Shield,
-      subsections: [
-        { key: "overview", title: "Overview" },
-        { key: "marketRisks", title: "Market Risks" },
-        { key: "operationalRisks", title: "Operational Risks" },
-        { key: "regulatoryLegalRisks", title: "Regulatory & Legal Risks" },
-        { key: "financialRisks", title: "Financial Risks" },
-        { key: "contingencyPlans", title: "Contingency Plans" },
-      ],
       render: () => (
         <>
           <h3 id="riskAnalysisMitigation" className="font-bold">Overview</h3>
@@ -518,11 +434,6 @@ export function PlanOutput({
       title: "Appendices",
       description: "Glossary, resources & financial tables",
       icon: AppendixIcon,
-      subsections: [
-        { key: "glossary", title: "Glossary" },
-        { key: "managementTeamsResources", title: "Management Teams’ Resources" },
-        { key: "projectedFinancesTables", title: "Projected Finances Tables" },
-      ],
       render: () => (
         <>
           <h3 id="appendices" className="font-bold">Glossary</h3>
@@ -552,123 +463,98 @@ export function PlanOutput({
     }
     return false
   }).length
-
+  
   return (
-    <div className="flex h-screen bg-gray-50">         {/* use exact viewport height */}
-      {/* Sidebar */}
-       <nav className="sticky top-0 h-[calc(100vh-2rem)] overflow-y-auto w-56 px-4 py-12 bg-white no-scrollbar">
+    <div className="flex h-full bg-gray-50">
+      <nav className="sticky top-4 h-[calc(100vh-2rem)] overflow-auto w-56 p-4 bg-white border-r">
         <ul className="space-y-2 text-sm">
           {sections.map((s) => (
             <li key={s.key}>
-              <button
-                onClick={() => toggleSection(s.key)}
-                className="w-full text-left font-medium hover:text-blue-600"
+              <a
+                href={`#${s.key}`}
+                className="block hover:text-blue-600"
               >
                 {s.title}
-              </button>
-
-              {s.subsections && openSection === s.key && (
-                <ul className="mt-1 ml-4 space-y-1 text-xs text-gray-600">
-                  {s.subsections.map((sub) => (
-                    <li key={sub.key}>
-                      <a
-                        href={`#${s.key}`}
-                        onClick={() => setOpenSection(s.key)}
-                        className="block hover:text-blue-500"
-                      >
-                        {sub.title}
-                      </a>
-                    </li>
-                  ))}
-                </ul>
-              )}
+              </a>
             </li>
           ))}
         </ul>
       </nav>
 
-      {/* Main Content */}
-      <div className="flex-1 flex flex-col overflow-y-auto">
-        {/* Header Bar */}
-        <div className="px-6 py-4">
+      {/* 2) Main column: Header + Content */}
+      <div className="flex-1 flex flex-col">
+        {/* Header */}
+        <div className="bg-white border-b border-gray-200 px-6 py-1">
           <div className="max-w-3xl mx-auto flex items-center justify-between">
-            <div /> {/* placeholder to keep title area empty */}
-            <div className="flex items-center space-x-2">
-              <Link href="/dashboard">
-                <Button
-                  variant="outline"
-                  size="sm"
-                  className="rounded-2xl px-4 py-2"
-                >
-                  Back to Dashboard
-                </Button>
-              </Link>
-              <Button
-                onClick={onDownload}
-                className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-6 py-3 font-semibold transition-all duration-300 transform hover:scale-105"
-              >
-                <Download className="h-4 w-4 mr-2" />
-                Download DOCX
-              </Button>
+            <div>
+              <h1 className="text-2xl font-bold text-gray-900 mb-2">
+                {businessName} — Business Plan
+              </h1>
             </div>
+            <Button
+              onClick={onDownload}
+              className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-6 py-3 font-semibold transition-all duration-300 transform hover:scale-105"
+            >
+              <Download className="h-4 w-4 mr-2" />
+              Download DOCX
+            </Button>
           </div>
         </div>
 
-
-        {/* Sections */}
-        <div className="px-6 pt-2 pb-0">
+        {/* Content */}
+        <div className="flex-1 overflow-y-auto p-6">
           <div className="max-w-3xl mx-auto space-y-6">
             {sections.map((section) => {
               const Icon = section.icon
               return (
-                <section id={section.key} key={section.key} className="scroll-mt-20">
-                  <Card
-                    className={`border-0 shadow-lg bg-white transition-all duration-300 ${
-                      hoveredSection === section.key
-                        ? "shadow-xl transform scale-[1.02]"
-                        : ""
-                    }`}
-                    onMouseEnter={() => setHoveredSection(section.key)}
-                    onMouseLeave={() => setHoveredSection(null)}
-                  >
-                    <CardHeader className="pb-4 px-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-100 to-red-100 rounded-2xl">
-                            <Icon className="h-6 w-6 text-orange-600" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-xl font-bold text-gray-900">
-                              {section.title}
-                            </CardTitle>
-                            {section.description && (
-                              <p className="text-gray-600 text-sm mt-1">
-                                {section.description}
-                              </p>
-                            )}
-                          </div>
+                <Card
+                  key={section.key}
+                  className={`border-0 shadow-lg bg-white transition-all duration-300 ${
+                    hoveredSection === section.key
+                      ? "shadow-xl transform scale-[1.02]"
+                      : ""
+                  }`}
+                  onMouseEnter={() => setHoveredSection(section.key)}
+                  onMouseLeave={() => setHoveredSection(null)}
+                >
+                  <CardHeader className="pb-4 px-6">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-4">
+                        <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-100 to-red-100 rounded-2xl">
+                          <Icon className="h-6 w-6 text-orange-600" />
                         </div>
-                        <Button
-                          onClick={() => onEditSection(section.key)}
-                          variant="outline"
-                          size="sm"
-                          className={`rounded-2xl transition-all duration-300 ${
-                            hoveredSection === section.key
-                              ? "opacity-100 transform scale-105 border-orange-300 text-orange-600 hover:bg-orange-50"
-                              : "opacity-0"
-                          }`}
-                        >
-                          <Edit3 className="h-4 w-4 mr-2" />
-                          Edit Section
-                        </Button>
+                        <div>
+                          <CardTitle
+                            id={section.key}                      {/* add anchor IDs here */}
+                            className="text-xl font-bold text-gray-900"
+                          >
+                            {section.title}
+                          </CardTitle>
+                          <p className="text-gray-600 text-sm mt-1">
+                            {section.description}
+                          </p>
+                        </div>
                       </div>
-                    </CardHeader>
-                    <Separator className="mx-6" />
-                    <CardContent className="pt-6 px-6 space-y-4">
-                      {section.render()}
-                    </CardContent>
-                  </Card>
-                </section>
+                      <Button
+                        onClick={() => onEditSection(section.key)}
+                        variant="outline"
+                        size="sm"
+                        className={`rounded-2xl transition-all duration-300 ${
+                          hoveredSection === section.key
+                            ? "opacity-100 transform scale-105 border-orange-300 text-orange-600 hover:bg-orange-50"
+                            : "opacity-0"
+                        }`}
+                      >
+                        <Edit3 className="h-4 w-4 mr-2" />
+                        Ask AI to Edit
+                      </Button>
+                    </div>
+                  </CardHeader>
+                  <Separator className="mx-6" />
+                  <CardContent className="pt-6 px-6 space-y-4">
+                    {section.render()}
+                  </CardContent>
+                </Card>
               )
             })}
           </div>
@@ -676,4 +562,4 @@ export function PlanOutput({
       </div>
     </div>
   )
-}
+  }
