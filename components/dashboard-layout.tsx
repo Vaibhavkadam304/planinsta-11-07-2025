@@ -83,7 +83,7 @@ export default function DashboardLayout({
       <aside
           className="hidden lg:flex flex-col w-64 border-r border-gray-200"
           style={{
-            background: "linear-gradient(180deg, rgba(255, 240, 230, 0.8) 0%, rgba(255, 220, 190, 0.8) 100%)",
+            // background: "linear-gradient(180deg, rgba(255, 240, 230, 0.8) 0%, rgba(255, 220, 190, 0.8) 100%)",
           }}
         >
         <div className="px-6 py-8">
@@ -119,8 +119,8 @@ export default function DashboardLayout({
         <header
             className="flex items-center justify-between px-6 py-4"
             style={{
-               backgroundColor: "#FDF0E8",
-               borderBottom: "1px solid rgba(229,229,229,0.8)",
+              //  backgroundColor: "#FDF0E8",
+              //  borderBottom: "1px solid rgba(229,229,229,0.8)",
             }}
           >
           <div className="flex items-center space-x-4">
@@ -212,9 +212,9 @@ export default function DashboardLayout({
         {/* Page Actions Bar */}
         <div
             className="px-6 py-5 flex items-center justify-between"
-            style={{
-               backgroundColor: "#FDF0E8"          
-            }}
+            // style={{
+            //    backgroundColor: "#FDF0E8"          
+            // }}
           >
           <div>
             <p className="text-gray-600">
@@ -242,7 +242,7 @@ export default function DashboardLayout({
         <main
           className="px-2 py-4 flex-1"
           style={{
-            backgroundImage: "url(/images/banner-img.png)",
+            backgroundImage: "url(/images/bg4-img.jpg)",
             backgroundSize: "cover",
             backgroundPosition: "center",
           }}

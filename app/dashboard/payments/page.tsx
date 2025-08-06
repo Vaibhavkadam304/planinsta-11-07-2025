@@ -2,7 +2,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import ProtectedRoute from "@/components/ProtectedRoute";
+import {ProtectedRoute} from "@/components/auth/protected-route";
 import DashboardLayout from "@/components/dashboard-layout";
 
 interface Payment {

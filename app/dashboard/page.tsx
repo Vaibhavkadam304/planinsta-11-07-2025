@@ -25,8 +25,7 @@ export default async function DashboardPage() {
   return (
     <DashboardLayout currentPage="dashboard" userName={userName}>
       <div>
-        <h1>Dashboard</h1>
-        <p>Welcome to your dashboard!</p>
+        
       </div>
     </DashboardLayout>
   )
