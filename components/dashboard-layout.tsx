@@ -80,14 +80,19 @@ export default function DashboardLayout({
   return (
     <div className="flex min-h-screen bg-gray-100">
       {/* ─── SIDEBAR (desktop) ───────────────────────────────────────────── */}
-      <aside className="hidden lg:flex flex-col w-64 bg-white border-r border-gray-200">
+      <aside
+          className="hidden lg:flex flex-col w-64 border-r border-gray-200"
+          style={{
+            background: "linear-gradient(180deg, rgba(255, 240, 230, 0.8) 0%, rgba(255, 220, 190, 0.8) 100%)",
+          }}
+        >
         <div className="px-6 py-8">
           <Image
             src="/images/planinsta-logo.png"
             alt="PlanInsta"
             width={150}
             height={40}
-            className="h-10 w-auto"
+            className="h-5 w-auto"
           />
         </div>
         <nav className="flex-1 px-6 space-y-1">
@@ -111,7 +116,13 @@ export default function DashboardLayout({
       {/* ─── MAIN CONTENT ─────────────────────────────────────────────────── */}
       <div className="flex-1 flex flex-col">
         {/* Header */}
-        <header className="flex items-center justify-between px-6 py-4 bg-white border-b border-gray-200">
+        <header
+            className="flex items-center justify-between px-6 py-4"
+            style={{
+               backgroundColor: "#FDF0E8",
+               borderBottom: "1px solid rgba(229,229,229,0.8)",
+            }}
+          >
           <div className="flex items-center space-x-4">
             <button
               onClick={() => setMobileMenuOpen((o) => !o)}
@@ -199,7 +210,12 @@ export default function DashboardLayout({
         )}
 
         {/* Page Actions Bar */}
-        <div className="bg-white border-b border-gray-200 px-6 py-5 flex items-center justify-between">
+        <div
+            className="px-6 py-5 flex items-center justify-between"
+            style={{
+               backgroundColor: "#FDF0E8"          
+            }}
+          >
           <div>
             <p className="text-gray-600">
               {currentPage === "dashboard" && "Overview of your business plans and activity"}
@@ -223,7 +239,14 @@ export default function DashboardLayout({
         </div>
 
         {/* Main Content */}
-        <main className="px-6 py-8 bg-gray-100 flex-1">{children}</main>
+        <main
+          className="px-2 py-4 flex-1"
+          style={{
+            backgroundImage: "url(/images/banner-img.png)",
+            backgroundSize: "cover",
+            backgroundPosition: "center",
+          }}
+         >{children}</main>
       </div>
     </div>
   )

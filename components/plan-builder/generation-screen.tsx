@@ -207,7 +207,7 @@ export function GenerationScreen({ businessName }: GenerationScreenProps) {
           {/* Footer Message */}
           <div className="text-center">
             <p className="text-gray-600 text-sm">
-              This process typically takes 10 seconds. Please don't close this window.
+              Generating your plan may take a moment—hang tight while we finish up.
             </p>
           </div>
         </CardContent>

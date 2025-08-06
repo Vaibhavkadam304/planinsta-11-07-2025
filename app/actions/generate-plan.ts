@@ -146,10 +146,10 @@ export async function generateBusinessPlan(
 ): Promise<GenerateBusinessPlanResult> {
   try {
     // initialize Supabase client
-     const supabase = createServerComponentClient({
-        cookies: () => cookies()
-      })
-
+    const cookiesStore = await cookies()
+    const supabase = createServerComponentClient({
+      cookies: () => cookiesStore
+    })
     // 1) Generate the plan JSON via OpenAI
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
@@ -249,20 +249,22 @@ export async function generateBusinessPlan(
       }
     }
 
-    REQUIREMENTS:
     1. Return ONLY the JSON object.
-    2. Populate each field with 4–6 well-developed paragraphs of professional, formal business language—include data-driven detail, examples, and clear explanations.
-    3. Use only the provided form data; do not invent numbers.
-    4. Keep each top-level section roughly 400–600 words for full depth.`
+    2. Populate each field with 4–6 well-developed paragraphs…
+    3. Use only the provided form data; do not invent numbers—*except* for the \`fundingRequirementsUsageOfFunds\` field: you **must** synthesize that section yourself…
+      - fundingReceived  
+      - fundingNeeded  
+      - fundingUseBreakdown  
+    4. Keep each top-level section roughly 400–600 words…
+    `
 
-    const userPrompt = `Generate a comprehensive business plan using this form input:\n\n${JSON.stringify(
-      formData,
-      null,
-      2
-    )}
+    const userPrompt = `Generate a comprehensive business plan using this form input.
 
-Be sure to include the full 'products' section with overview, ten product entries, USPs, development roadmap, and IP/regulatory status.`
+    Make sure you populate the Executive Summary’s **fundingRequirementsUsageOfFunds** section (“Funding Requirements & Usage”).
 
+    ${JSON.stringify(formData, null, 2)}
+
+    Be sure to include the full 'products' section with overview, ten product entries, USPs, development roadmap, and IP/regulatory status.`
    const config = new Configuration({
   apiKey: process.env.OPENAI_API_KEY,
 })
@@ -304,23 +306,37 @@ while (true) {
   }
 }
 
-
-    // ── grab the raw string and strip any ```json fences ──
+     // ── grab the raw string and strip any ```json fences ──
     let raw = completion.data.choices?.[0]?.message?.content!
     if (!raw) throw new Error("OpenAI returned no content")
+
+    // strip code fences if present
     raw = stripFences(raw)
-      if (
-      (raw.startsWith('"') && raw.endsWith('"')) ||
-      (raw.startsWith("'") && raw.endsWith("'"))
-      ) {
-        raw = raw.slice(1, -1).trim()
+
+    // Now ensure we trim down to just the JSON object:
+    {
+      const start = raw.indexOf("{")
+      const end   = raw.lastIndexOf("}")
+      if (start !== -1 && end !== -1 && end > start) {
+        raw = raw.slice(start, end + 1)
       }
+    }
 
+    // Try parsing, with a fallback if there's still junk
+    let parsed: unknown
+    try {
+      parsed = JSON.parse(raw)
+    } catch (firstErr) {
+      // last-ditch: retry on the `{…}` slice in case there was leading/trailing garbage
+      const start = raw.indexOf("{")
+      const end   = raw.lastIndexOf("}")
+      if (start === -1 || end === -1) throw firstErr
+      const jsonOnly = raw.slice(start, end + 1)
+      parsed = JSON.parse(jsonOnly)
+    }
 
-    // ── now safe to parse + validate ──
-    const planObject = businessPlanSchema.parse(
-      JSON.parse(raw)
-    )
+  // validate & coerce with Zod
+  const planObject = businessPlanSchema.parse(parsed)
     // 2) Authenticate user
     const {
       data: { user },
@@ -413,13 +429,23 @@ while (true) {
           console.error("❌  SMTP credentials failed:", err);
         }
 
-      const info = await transporter.sendMail({
-        from:    process.env.EMAIL_FROM,
-        to:      process.env.NOTIFY_EMAIL,
-        subject: `🚀 New Business Plan: ${formData.businessName}`,
-        text:    `A new plan titled "${formData.businessName}" was just generated.`,
-      });
-      console.log("✉️ Email sent:", info.messageId);
+      const fullName = user?.user_metadata?.full_name ?? user?.email
+      const userCreated = user?.created_at
+        ? new Date(user.created_at).toLocaleString()
+        : 'Unknown'
+
+      await transporter.sendMail({
+        from: process.env.EMAIL_FROM,
+        to: process.env.NOTIFY_EMAIL,
+        subject: `📝 New Plan by ${fullName}`,
+        html: `
+          <h2>PlanInsta Business Plan Created</h2>
+          <p><strong>User:</strong> ${fullName}</p>
+          <p><strong>Email:</strong> ${user?.email}</p>
+          <p><strong>Account Created:</strong> ${userCreated}</p>
+          <p><strong>Plan Generated At:</strong> ${new Date().toLocaleString()}</p>
+        `
+      })
     } catch (e) {
       console.error("❌ Email failed:", e);
     }

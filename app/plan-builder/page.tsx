@@ -15,6 +15,7 @@ import * as htmlDocx from "html-docx-js/dist/html-docx"
 import { exportBusinessPlanDocx } from "@/app/utils/exportDocx"
 import { saveAs } from "file-saver";
 import Link from "next/link"
+import { ManualEditModal } from "@/components/plan-builder/manual-edit-modal"
 
 import {
   Document,
@@ -226,37 +227,6 @@ export default function PlanBuilderClient() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
 
-  // ─── PAY‑GATE EFFECT ───
-  // After quiz data is in sessionStorage but before ?paid=true, 
-  // decide whether to skip to generate or go to payment.
-  // useEffect(() => {
-  //     // 1️⃣ only run once they’ve answered the quiz
-  //     const raw = sessionStorage.getItem("planData")
-  //     if (!raw) return
-
-  //     // 2️⃣ if they’re returning from payment, don’t re‑gate
-  //     if (searchParams.get("paid") === "true") return
-
-  //     // 3️⃣ otherwise check if they've already paid
-  //     fetch("/api/razorpay/record-payment", {
-  //       method:      "GET",
-  //       credentials: "include",    // ← add this line
-  //     })
-  //       .then(r => r.json())
-  //       .then(({ paid }) => {
-  //         if (paid) {
-  //           // already paid → skip payment and generate
-  //           router.replace("/plan-builder?paid=true")
-  //         } else {
-  //           // not paid → send to payment page
-  //           router.replace("/plan-builder/payment")
-  //         }
-  //       })
-  //       .catch(() => {
-  //         // network/auth error → stay on quiz
-  //       })
-  // }, [router, searchParams])
-
 
   const [hasRedirectedForPayment, setHasRedirectedForPayment] = useState(false)
   // const [planTitle,          setPlanTitle]         = useState("Untitled Business Plan")
@@ -296,6 +266,9 @@ export default function PlanBuilderClient() {
   })
   const [generatedPlan,      setGeneratedPlan]     = useState<GeneratedPlan | null>(null)
   const [editingSection,     setEditingSection]    = useState<string | null>(null)
+  const [manualEditingSection, setManualEditingSection] = useState<string | null>(null)
+  const [manualEditingSubsection, setManualEditingSubsection] = useState<string | null>(null)
+  const [manualEditedContent, setManualEditedContent] = useState<string>("")
   const [showUnsavedModal,   setShowUnsavedModal]  = useState(false)
   const [hasUnsavedChanges,  setHasUnsavedChanges] = useState(false)
 
@@ -462,40 +435,22 @@ export default function PlanBuilderClient() {
   function capitalizeWords(str: string): string {
     return str.replace(/\b\w/g, (char) => char.toUpperCase())
   }
+// ← under your other handlers in PlanBuilderClient()
+  async function handleManualSave(sectionKey: string, newText: string) {
+    if (!planId || !generatedPlan) return
+    // 1) merge into state
+    const updatedPlan = { ...generatedPlan, [sectionKey]: newText }
+    setGeneratedPlan(updatedPlan)
+    setManualEditingSection(null)
+    setManualEditedContent("")
+    // 2) persist to API
+    await fetch(`/api/plans/${planId}`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(updatedPlan),
+    })
+  }
 
-//   const handleDownload = () => {
-//   // 1) grab the plan HTML
-//   const container = document.getElementById("plan-container")
-//   if (!container) {
-//     console.error("🛑 No plan-container element found")
-//     return
-//   }
-
-//   // 2) wrap it in minimal HTML + CSS for Word
-//   const html = `
-//     <html>
-//       <head>
-//         <style>
-//           /* tweak these to suit your branding */
-//           h1 { font-size: 24pt; color: #333; margin-bottom: 0.5em; }
-//           h2 { font-size: 18pt; margin-top: 1em; margin-bottom: 0.25em; }
-//           p  { font-size: 11pt; line-height: 1.5; margin: 0.25em 0; }
-//           /* tables, lists, images, etc. will follow your existing page CSS */
-//         </style>
-//       </head>
-//       <body>${container.innerHTML}</body>
-//     </html>
-//   `
-
-//   // 3) convert to a .docx blob
-//   const blob = htmlDocx.asBlob(html)
-
-//   // 4) download with a clean filename
-//   const base = planData.businessName
-//     ? planData.businessName.toLowerCase().replace(/\s+/g, "-").replace(/[^a-z0-9\-]/g, "")
-//     : "business-plan"
-//   saveAs(blob, `${base}.docx`)
-// }
 
 const handleDownload = () => {
   if (generatedPlan) {
@@ -503,31 +458,51 @@ const handleDownload = () => {
   }
 }
 
+// 2️⃣ Next, add two helper handlers:
+function handleStartManualEdit(sectionKey: string, subKey: string) {
+  setManualEditingSection(sectionKey)
+  setManualEditingSubsection(subKey)
+  // pull in the current content for that one sub‐section
+  const raw = (generatedPlan as any)[sectionKey][subKey]
+  setManualEditedContent(typeof raw === "string" ? raw : JSON.stringify(raw, null, 2))
+}
 
-// const handleDownload = async () => {
-//   if (!generatedPlan) return;
+async function handleSaveSubsection(
+  sectionKey: string,
+  subKey: string,
+  newContent: string
+) {
+  // 1) Optimistically update UI
+  setGeneratedPlan((p) => ({
+    ...p!,
+    [sectionKey]: {
+      ...(p! as any)[sectionKey],
+      [subKey]:
+        typeof (p! as any)[sectionKey][subKey] === "object"
+          ? JSON.parse(newContent)
+          : newContent,
+    },
+  }))
+  // 2) Persist to your API
+  await fetch(`/api/plans/${planId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      [sectionKey]: {
+        ...((generatedPlan as any)[sectionKey]),
+        [subKey]:
+          typeof (generatedPlan as any)[sectionKey][subKey] === "object"
+            ? JSON.parse(newContent)
+            : newContent,
+      },
+    }),
+  })
+  // 3) Clear edit state
+  setManualEditingSection(null)
+  setManualEditingSubsection(null)
+  setManualEditedContent("")
+}
 
-//   try {
-//     const res = await fetch("/api/generate-pdf", {
-//       method: "POST",
-//       headers: { "Content-Type": "application/json" },
-//       body: JSON.stringify({ planData, generatedPlan }),
-//     });
-//     if (!res.ok) {
-//       console.error("PDF gen failed:", await res.text());
-//       return;
-//     }
-//     const blob = await res.blob();
-//     const fileName =
-//       planData.businessName
-//         .toLowerCase()
-//         .replace(/\s+/g, "-")
-//         .replace(/[^a-z0-9\-]/g, "") + ".pdf";
-//     saveAs(blob, fileName);
-//   } catch (err) {
-//     console.error("Network error:", err);
-//   }
-// };
 
 
 
@@ -576,13 +551,26 @@ const sectionText =
         {stage === "output" && generatedPlan && (
           <div id="plan-container">
             {/* <h1>{planData.businessName} — Business Plan</h1> */}
-            <PlanOutput
-              planData={planData}
-              generatedPlan={generatedPlan}
-              onEditSection={setEditingSection}
-              onDownload={handleDownload}
-              
-            />
+             <PlanOutput
+                planData={planData}
+                generatedPlan={generatedPlan}
+                onEditSection={setEditingSection}       // your AI‐edit button
+
+                // 🔥 inline edit props
+                manualEditingSection={manualEditingSection}
+                manualEditingSubsection={manualEditingSubsection}
+                manualEditedContent={manualEditedContent}
+                onManualStartEdit={handleStartManualEdit}
+                onManualEditedContentChange={setManualEditedContent}
+                onManualSaveSubsection={handleSaveSubsection}
+                onManualCancel={() => {
+                  setManualEditingSection(null)
+                  setManualEditingSubsection(null)
+                  setManualEditedContent("")
+                }}
+
+                onDownload={handleDownload}
+              />
           </div>
         )}
       </div>

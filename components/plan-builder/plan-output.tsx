@@ -26,7 +26,28 @@ import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/page"
 interface PlanOutputProps {
   planData: BusinessPlanData
   generatedPlan: GeneratedPlan
+
+  // your AI‐trigger
   onEditSection: (sectionKey: string) => void
+
+  // manually editing a specific subsection
+  manualEditingSection: string | null
+  manualEditingSubsection: string | null
+  manualEditedContent: string
+
+  // fire when you click “Edit” on a subsection
+  onManualStartEdit: (sectionKey: string, subKey: string) => void
+
+  // fire when you click “Save” in a subsection’s textarea
+  onManualSaveSubsection: (
+    sectionKey: string,
+    subKey: string,
+    newContent: string
+  ) => void
+
+  onManualEditedContentChange: (value: string) => void
+  onManualCancel: () => void
+
   onDownload: () => void
 }
 
@@ -35,6 +56,16 @@ export function PlanOutput({
   generatedPlan,
   onEditSection,
   onDownload,
+
+  // these two must match exactly what you just put in the interface:
+  onManualStartEdit,
+  onManualSaveSubsection,
+
+  manualEditingSection,
+  manualEditingSubsection,
+  manualEditedContent,
+  onManualEditedContentChange,
+  onManualCancel,
 }: PlanOutputProps) {
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const businessName = planData.businessName || "Your Business"
@@ -51,9 +82,9 @@ export function PlanOutput({
       icon: FileText,
       subsections: [
         { key: "businessOverview", title: "Business Overview" },
-        { key: "fundingRequirements", title: "Funding Requirements & Usage" },
+        { key: "fundingRequirementsUsageOfFunds", title: "Funding Requirements & Usage" },
         { key: "pastMilestones", title: "Past Milestones" },
-        { key: "problemSolution", title: "Problem Statement & Solution" },
+        { key: "problemStatementSolution",       title: "Problem Statement & Solution" },
       ],
       render: () => (
         <>
@@ -658,15 +689,110 @@ export function PlanOutput({
                               : "opacity-0"
                           }`}
                         >
-                          <Edit3 className="h-4 w-4 mr-2" />
-                          Edit Section
+                          <Edit3 className="h-4 w-2 mr-2" />
+                          Ask to AI
                         </Button>
                       </div>
                     </CardHeader>
+
+
                     <Separator className="mx-6" />
-                    <CardContent className="pt-6 px-6 space-y-4">
-                      {section.render()}
+                    <CardContent className="pt-6 px-6 space-y-6">
+                      {section.subsections.map(({ key: subKey, title }) => {
+                        const raw = (generatedPlan as any)[section.key][subKey]
+
+                        // 1) If this subsection is an array, skip all the manual-edit
+                        //    <textarea> / pencil icon logic and render a native table instead:
+                        if (Array.isArray(raw)) {
+                          return (
+                            <div key={subKey} className="space-y-2">
+                              <h4 className="font-bold">{title}</h4>
+                              <table className="w-full table-auto border-collapse border">
+                                <thead>
+                                  {/** you can switch on subKey if you need different headers **/}
+                                  <tr>
+                                    {Object.keys(raw[0]).map((col) => (
+                                      <th key={col} className="border px-2 py-1 text-left">
+                                        {col}
+                                      </th>
+                                    ))}
+                                  </tr>
+                                </thead>
+                                <tbody>
+                                  {raw.map((row: any, i: number) => (
+                                    <tr key={i}>
+                                      {Object.values(row).map((val, j) => (
+                                        <td key={j} className="border px-2 py-1">
+                                          {val}
+                                        </td>
+                                      ))}
+                                    </tr>
+                                  ))}
+                                </tbody>
+                              </table>
+                            </div>
+                          )
+                        }
+
+                        // 2) Otherwise, it’s just a string, so you still get your
+                        //    inline‐edit pencil + textarea logic:
+
+                        const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)
+                        const isEditing =
+                          manualEditingSection === section.key &&
+                          manualEditingSubsection === subKey
+
+                        return (
+                          <div key={subKey} className="group space-y-2">
+                            <div className="flex justify-between items-center">
+                              <h4 className="font-bold">{title}</h4>
+                              {!isEditing && (
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={() => onManualStartEdit(section.key, subKey)}
+                                  aria-label={`Edit ${title}`}
+                                >
+                                  <Edit3 className="h-4 w-4" />
+                                </Button>
+                              )}
+                            </div>
+
+                            {isEditing ? (
+                              <>
+                                <textarea
+                                  rows={4}
+                                  className="w-full border rounded p-2 font-mono text-sm"
+                                  value={manualEditedContent}
+                                  onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                />
+                                <div className="flex gap-2 mt-2">
+                                  <Button
+                                    size="sm"
+                                    onClick={() =>
+                                      onManualSaveSubsection(
+                                        section.key,
+                                        subKey,
+                                        manualEditedContent
+                                      )
+                                    }
+                                  >
+                                    Save
+                                  </Button>
+                                  <Button size="sm" variant="outline" onClick={onManualCancel}>
+                                    Cancel
+                                  </Button>
+                                </div>
+                              </>
+                            ) : (
+                              <ReactMarkdown>{text}</ReactMarkdown>
+                            )}
+                          </div>
+                        )
+                      })}
                     </CardContent>
+
                   </Card>
                 </section>
               )

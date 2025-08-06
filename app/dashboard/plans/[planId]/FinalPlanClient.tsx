@@ -64,7 +64,10 @@ export default function FinalPlanClient({
             variant="outline"
             size="sm"
             onClick={() =>
-            exportBusinessPlanDocx({ businessName: planName, ...planData })
+             exportBusinessPlanDocx(
+                { businessName: planName },
+                planData
+              )
           }
             className="inline-flex items-center rounded-md border border-border px-3 py-2 text-sm font-medium hover:bg-accent/50 transition"
           >
