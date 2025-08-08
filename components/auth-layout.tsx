@@ -49,12 +49,6 @@ export function AuthLayout({ children }: AuthLayoutProps) {
 
           {/* Feature List */}
           <div className="space-y-4 mb-8">
-            <div className="flex items-center space-x-3">
-              <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
-                <Check className="w-4 h-4 text-white" />
-              </div>
-              <span className="text-gray-300">Multilingual exports (.docx)</span>
-            </div>
 
             <div className="flex items-center space-x-3">
               <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
@@ -67,7 +61,7 @@ export function AuthLayout({ children }: AuthLayoutProps) {
               <div className="w-6 h-6 bg-green-500 rounded-full flex items-center justify-center flex-shrink-0">
                 <Check className="w-4 h-4 text-white" />
               </div>
-              <span className="text-gray-300">Lifetime access, one-time pricing</span>
+              <span className="text-gray-300">Create your business plan in minutes – simple and hassle-free</span>
             </div>
           </div>
 

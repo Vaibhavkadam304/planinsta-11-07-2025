@@ -241,11 +241,7 @@ export default function DashboardLayout({
         {/* Main Content */}
         <main
           className="px-2 py-4 flex-1"
-          style={{
-            backgroundImage: "url(/images/bg4-img.jpg)",
-            backgroundSize: "cover",
-            backgroundPosition: "center",
-          }}
+
          >{children}</main>
       </div>
     </div>

@@ -139,28 +139,6 @@ export default function SettingsPage() {
         </label>
 
         {/* Optional: make these read-only if they shouldn't be user-editable */}
-        <label className="block">
-          <span className="text-sm text-gray-600">Plan type</span>
-          <input
-            value={dbUser?.plan_type ?? ""}
-            onChange={(e) =>
-              setDbUser(p => ({ ...(p as DbUser), plan_type: e.target.value }))
-            }
-            className="mt-1 w-full rounded border px-3 py-2"
-          />
-        </label>
-
-        <label className="block">
-          <span className="text-sm text-gray-600">Plan limit</span>
-          <input
-            type="number"
-            value={dbUser?.plan_limit ?? 0}
-            onChange={(e) =>
-              setDbUser(p => ({ ...(p as DbUser), plan_limit: Number(e.target.value) }))
-            }
-            className="mt-1 w-full rounded border px-3 py-2"
-          />
-        </label>
 
         <button
           disabled={savingProfile}

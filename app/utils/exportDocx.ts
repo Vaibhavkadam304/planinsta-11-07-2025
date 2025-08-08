@@ -22,25 +22,99 @@ import {
 import { saveAs } from "file-saver";
 import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient";
 
+
+const coercePlan = (input: any) => {
+  try {
+    if (!input) return {};
+    if (typeof input === "string") return JSON.parse(input);
+    if (input?.plan_json) {
+      try { return JSON.parse(input.plan_json); } catch {}
+    }
+    return input || {};
+  } catch {
+    return {};
+  }
+};
+
+const makeSafe = (obj: any) => {
+  const ARRAY_KEYS = new Set([
+    "revenueForecast",
+    "cogs",
+    "opEx",
+    "projectedPnl",
+    "cashFlowRunwayAnalysis",
+  ]);
+
+  // NEW: treat these as nested objects if missing
+  const SECTION_KEYS = new Set([
+    "executiveSummary",
+    "companyOverview",
+    "products",
+    "marketAnalysis",
+    "marketingSalesStrategies",
+    "operationsPlan",
+    "managementOrganization",
+    "financialPlan",
+    "riskAnalysisMitigation",
+    "appendices",
+  ]);
+
+  const wrap = (v: any): any => {
+    if (Array.isArray(v)) return v;
+    if (v && typeof v === "object") {
+      return new Proxy(v, {
+        get(target, prop: string) {
+          const val = (target as any)[prop];
+
+          if (val === undefined || val === null) {
+            if (ARRAY_KEYS.has(prop)) return [];
+            if (SECTION_KEYS.has(prop)) return wrap({}); // ← key tweak
+            return "";
+          }
+
+          if (Array.isArray(val)) return val;
+          if (typeof val === "object") return wrap(val);
+          return typeof val === "string" ? val : String(val);
+        },
+      });
+    }
+    return v ?? "";
+  };
+
+  return wrap(obj || {});
+};
+
+
+
+
 export async function exportBusinessPlanDocx(
   planData: BusinessPlanData,
   generatedPlan: GeneratedPlan
 )
 
+
 {
-    
+  
+  const rawPlan = coercePlan(generatedPlan);
+  const safePlan = makeSafe(rawPlan) as any;
+
   const {
-    executiveSummary,
-    companyOverview,
-    products,
-    marketAnalysis,
-    marketingSalesStrategies,
-    operationsPlan,
-    managementOrganization,
-    financialPlan,
-    riskAnalysisMitigation,
-    appendices,
-  } = generatedPlan;
+  executiveSummary,
+  companyOverview,
+  products,
+  marketAnalysis,
+  marketingSalesStrategies,
+  operationsPlan,
+  managementOrganization,
+  financialPlan,
+  riskAnalysisMitigation,
+  appendices,
+  businessName: planBusinessName,
+  companyName: planCompanyName,
+} = safePlan;
+
+const docTitle =
+  planData?.businessName || planBusinessName || planCompanyName || "Business Plan";
 
   const pageHeader = new Header({
     children: [
@@ -62,7 +136,7 @@ export async function exportBusinessPlanDocx(
         children: [
           // Business Name: bold, larger, underlined
           new TextRun({
-            text: planData.businessName.toUpperCase(),
+            text: docTitle.toUpperCase(),
             bold: true,
             size: 32,               // 16pt
             font: "Calibri Light",
@@ -147,7 +221,7 @@ export async function exportBusinessPlanDocx(
         children: [
           // Cover / Title
           new Paragraph({
-            text: planData.businessName.replace(/\b\w/g, (c) => c.toUpperCase()),
+            text: docTitle.replace(/\b\w/g, (c) => c.toUpperCase()),
             style: "TitleStyle",
           }),
 
@@ -494,7 +568,7 @@ export async function exportBusinessPlanDocx(
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
-  const safeName = planData.businessName
+  const safeName = docTitle
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\-]/g, "")

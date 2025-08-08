@@ -47,3 +47,32 @@ export async function DELETE(
 
   return NextResponse.json({ success: true })
 }
+
+
+export async function GET(
+  req: Request,
+  context: { params: { planId?: string } }
+) {
+  // await the async params getter
+  const { planId } = await context.params!
+  const cookieStore = await getCookies()
+  const supabase = createRouteHandlerClient({ cookies: () => cookieStore })
+
+  // fetch exactly the JSON column you write in updatePlan
+  const { data, error } = await supabase
+    .from("business_plans")
+    .select("plan_data")
+    .eq("id", planId!)
+    .single()
+
+  if (error || !data) {
+    console.error("Supabase GET error:", error?.message)
+    return NextResponse.json(
+      { error: error?.message || "Plan not found" },
+      { status: 404 }
+    )
+  }
+
+  // return just the JSON payload
+  return NextResponse.json(data.plan_data)
+}

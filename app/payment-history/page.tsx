@@ -73,12 +73,6 @@ export default async function PaymentHistoryPage() {
           <Card className="bg-white shadow-sm">
             <CardContent className="py-14 text-center space-y-3">
               <p className="text-sm text-muted-foreground">No payments found.</p>
-              <Link
-                href="/plan-builder/payment-info"
-                className="inline-block px-5 py-2 bg-black text-white rounded-lg text-xs font-medium hover:opacity-90"
-              >
-                Make your first payment
-              </Link>
             </CardContent>
           </Card>
         )}

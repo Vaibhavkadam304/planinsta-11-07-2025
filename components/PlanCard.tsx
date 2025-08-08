@@ -4,9 +4,10 @@
 import { useToast } from "@/components/ui/use-toast"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardTitle } from "@/components/ui/card"
-import { Trash2 } from "lucide-react"
+import { Trash2, Download } from "lucide-react"
 import Link from "next/link"
 import { ConfirmDelete } from "@/components/ConfirmDelete"
+import { exportBusinessPlanDocx } from "@/app/utils/exportDocx"
 
 export default function PlanCard({
   plan,
@@ -56,12 +57,28 @@ export default function PlanCard({
 
       {/* Actions */}
       <div className="mt-6 flex items-center justify-between gap-3">
-        <Link
+       {/* <Link
           href={`/dashboard/plans/${plan.id}`}
           className="text-sm font-medium underline-offset-4 hover:underline"
         >
           Open
-        </Link>
+        </Link> */}
+
+        {/* minimal: hit your server download route */}
+        <Button
+          size="sm"
+          // variant="outline"
+          className="inline-flex items-center gap-1"
+          onClick={() =>
+            exportBusinessPlanDocx(
+                { businessName: plan.plan_name },
+                plan.plan_json
+              )
+          }
+        >
+          <Download className="w-4 h-4" />
+          Download
+        </Button>
 
         <ConfirmDelete
           trigger={
