@@ -55,9 +55,12 @@ export default function ForgotPasswordPage() {
 
     setIsLoading(true)
 
-    // ❗️ Swapped to the new helper:
+    // ✅ Fix: redirect to your reset page (dev+prod safe)
+    const baseUrl =
+      process.env.NEXT_PUBLIC_SITE_URL ?? window.location.origin
+
     const { error } = await supabase.auth.resetPasswordForEmail(formData.email, {
-      redirectTo: `${window.location.origin}/auth/signin`,
+      redirectTo: `${baseUrl}/auth/reset-password`,
     })
 
     if (error) {
