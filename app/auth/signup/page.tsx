@@ -81,51 +81,61 @@ export default function SignUpPage() {
 
     setIsLoading(true)
 
-    // 1️⃣ Sign up via Supabase Auth
-    const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
+    // 🔎 Pre-check your own users table (prevents “illusion” of creation)
+    try {
+      const { data: existing } = await supabase
+        .from("users")
+        .select("id")
+        .eq("email", formData.email)
+        .maybeSingle()
+
+      if (existing) {
+        toast({
+          title: "Account already exists",
+          description: "That email is already in use. Try signing in.",
+          variant: "destructive",
+        })
+        setIsLoading(false)
+        return
+      }
+    } catch {
+      // Ignore read errors for pre-check; we'll still rely on Auth validation next
+    }
+
+    // 1️⃣ Sign up via Supabase Auth (no DB insert here)
+    const { data, error: signUpError } = await supabase.auth.signUp({
       email: formData.email,
       password: formData.password,
       options: {
         data: { full_name: formData.fullName },
       },
     })
-    
-    await supabase.auth.signOut();
-    
+
     if (signUpError) {
+      const isDuplicate =
+        // common duplicate/email-in-use cases
+        (signUpError as any).status === 422 ||
+        /already registered|already exists/i.test(signUpError.message || "") ||
+        (signUpError as any).code === "user_already_exists"
+
       toast({
-        title: "Error creating account",
-        description: signUpError.message,
+        title: isDuplicate ? "Account already exists" : "Couldn’t create account",
+        description: isDuplicate
+          ? "That email is already in use. Try signing in."
+          : (signUpError.message || "Please try again."),
         variant: "destructive",
       })
       setIsLoading(false)
       return
     }
 
-    // 2️⃣ If auth succeeded, insert into your public users table
-    const user = signUpData.user
-    if (user) {
-      const { error: userTableError } = await supabase
-        .from("users")
-        .insert({
-          id: user.id,
-          email: user.email,
-          full_name: formData.fullName,
-        })
-
-      if (userTableError) {
-        console.error("Failed to insert into users table:", userTableError)
-        // you can choose to inform the user or proceed
-      }
-    }
-
-    // 3️⃣ Notify & redirect
+    // ✅ Success: do NOT insert into your public.users table here
     toast({
       title: "Account created!",
       description: "Please check your email to verify and then sign in.",
     })
-    router.replace("/auth/signin")
     setIsLoading(false)
+    router.replace("/auth/signin")
   }
 
   return (

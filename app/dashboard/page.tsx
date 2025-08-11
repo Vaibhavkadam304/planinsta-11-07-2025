@@ -1,13 +1,20 @@
 // app/dashboard/page.tsx
-// (no "use client" at the top – this is a server component)
+// server component
 
-import { cookies } from "next/headers"
+import { cookies, headers } from "next/headers"
 import { redirect } from "next/navigation"
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import DashboardLayout from "@/components/dashboard-layout"
 
 export default async function DashboardPage() {
-  const supabase = createServerComponentClient({ cookies })
+  const cookieStore = await cookies()
+  const headerList = await headers()
+
+  const supabase = createServerComponentClient({
+    cookies: () => cookieStore,
+    headers: () => headerList,
+  })
+
   const {
     data: { user },
     error,
@@ -18,14 +25,15 @@ export default async function DashboardPage() {
   }
 
   const userName =
-    (user.user_metadata as { full_name?: string }).full_name ||
+    (user.user_metadata as { full_name?: string; name?: string })?.full_name ||
+    (user.user_metadata as { name?: string })?.name ||
     user.email ||
     "User"
 
   return (
     <DashboardLayout currentPage="dashboard" userName={userName}>
       <div>
-        
+        {/* your dashboard content */}
       </div>
     </DashboardLayout>
   )

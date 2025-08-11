@@ -11,7 +11,9 @@ import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChevronLeft, ChevronRight, Plus, Minus, Wand2 } from "lucide-react"
-import type { BusinessPlanData } from "@/app/plan-builder/page"
+
+// ⬅️ FIXED: import the type from PlanBuilderClient
+import type { BusinessPlanData } from "@/components/plan-builder/PlanBuilderClient"
 
 interface QuizInterfaceProps {
   data: BusinessPlanData
@@ -23,7 +25,8 @@ interface Question {
   id: string
   title: string
   description?: string
-  type: "text" | "textarea" | "select" | "multiselect" | "switch" | "list" | "keyvalue"
+  // ⬅️ EXTENDED: added "products"
+  type: "text" | "textarea" | "select" | "multiselect" | "switch" | "list" | "keyvalue" | "products"
   field: keyof BusinessPlanData
   options?: string[]
   required?: boolean
@@ -145,36 +148,19 @@ const sections: Section[] = [
       },
     ],
   },
+  // ⬇️ REPLACED: Product/Service section uses repeatable products block
   {
     id: "product-service",
-    title: "Product/Service",
-    description: "Detail your core offering and unique value proposition",
+    title: "Product / Service",
+    description: "Add one or more products. Use the button to add another.",
     questions: [
       {
-        id: "product-name",
-        title: "What's your main product or service called?",
-        description: "The name of your core offering",
-        type: "text",
-        field: "productName",
+        id: "products",
+        title: "Products",
+        description: "Add each product’s name, features, and what makes it unique.",
+        type: "products",
+        field: "products",
         required: true,
-        placeholder: "e.g., WorkflowAI Platform",
-      },
-      {
-        id: "key-features",
-        title: "What are the key features of your product/service?",
-        description: "List the main features that provide value to customers",
-        type: "list",
-        field: "keyFeatures",
-        placeholder: "e.g., Automated task scheduling",
-      },
-      {
-        id: "unique-selling-point",
-        title: "What makes your product/service unique?",
-        description: "Your competitive advantage or unique value proposition",
-        type: "textarea",
-        field: "uniqueSellingPoint",
-        required: true,
-        placeholder: "e.g., Our AI learns from user behavior to provide personalized automation recommendations",
       },
     ],
   },
@@ -421,10 +407,20 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   }
 
   const isLastSection = currentSectionIndex === sections.length - 1
+
+  // ⬇️ UPDATED: required logic respects products
   const requiredQuestions = currentSection.questions.filter((q) => q.required)
-  const canProceed = requiredQuestions.every((question) => {
-    const value = data[question.field]
-    return typeof value === "string" ? value.trim() : Array.isArray(value) ? value.length > 0 : true
+  const canProceed = requiredQuestions.every((q) => {
+    if (q.type === "products") {
+      const prods = data.products || []
+      return prods.length > 0 && prods.every((p) => (p.name || "").trim().length > 0)
+    }
+    const value = data[q.field]
+    return typeof value === "string"
+      ? value.trim().length > 0
+      : Array.isArray(value)
+        ? value.length > 0
+        : true
   })
 
   const renderQuestionInput = (question: Question) => {
@@ -568,6 +564,113 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
           </div>
         )
 
+      // ⬇️ NEW: products repeater
+      case "products": {
+        const products = Array.isArray(data.products) ? data.products : []
+
+        const updateProducts = (next: typeof products) => {
+          onChange({ products: next })
+        }
+
+        const addProduct = () => {
+          updateProducts([...products, { name: "", features: [""], uniqueSellingPoint: "" }])
+        }
+        const removeProduct = (idx: number) => {
+          const next = [...products]
+          next.splice(idx, 1)
+          updateProducts(next)
+        }
+        const updateProductField = (idx: number, key: "name" | "uniqueSellingPoint", value: string) => {
+          const next = [...products]
+          next[idx] = { ...next[idx], [key]: value }
+          updateProducts(next)
+        }
+        const updateFeature = (pIdx: number, fIdx: number, value: string) => {
+          const next = [...products]
+          next[pIdx].features[fIdx] = value
+          updateProducts(next)
+        }
+        const addFeature = (pIdx: number) => {
+          const next = [...products]
+          next[pIdx].features = [...(next[pIdx].features || []), ""]
+          updateProducts(next)
+        }
+        const removeFeature = (pIdx: number, fIdx: number) => {
+          const next = [...products]
+          next[pIdx].features.splice(fIdx, 1)
+          if (next[pIdx].features.length === 0) next[pIdx].features = [""]
+          updateProducts(next)
+        }
+
+        return (
+          <div className="space-y-6">
+            {products.map((p, idx) => (
+              <div key={idx} className="rounded-2xl border p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-semibold">Product {idx + 1}</h4>
+                  {products.length > 1 && (
+                    <Button type="button" variant="link" className="px-0" onClick={() => removeProduct(idx)}>
+                      Remove
+                    </Button>
+                  )}
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-medium">What’s your product called?</Label>
+                  <Input
+                    className="w-full rounded border px-3 py-2"
+                    placeholder="WorkflowAI Platform"
+                    value={p.name}
+                    onChange={(e) => updateProductField(idx, "name", e.target.value)}
+                  />
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-medium">Key features</Label>
+                  <div className="space-y-2">
+                    {(p.features || [""]).map((feat, fIdx) => (
+                      <div key={fIdx} className="flex items-center gap-2">
+                        <Input
+                          className="flex-1 rounded border px-3 py-2"
+                          placeholder="e.g., Automated task scheduling"
+                          value={feat}
+                          onChange={(e) => updateFeature(idx, fIdx, e.target.value)}
+                        />
+                        {(p.features?.length ?? 0) > 1 && (
+                          <Button type="button" variant="outline" size="sm" onClick={() => removeFeature(idx, fIdx)}>
+                            <Minus className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                  <Button type="button" variant="outline" size="sm" onClick={() => addFeature(idx)}>
+                    <Plus className="h-4 w-4 mr-2" />
+                    Add feature
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  <Label className="font-medium">What makes it unique?</Label>
+                  <Textarea
+                    className="w-full rounded border px-3 py-2"
+                    rows={3}
+                    placeholder="Learns from user behaviour…"
+                    value={p.uniqueSellingPoint}
+                    onChange={(e) => updateProductField(idx, "uniqueSellingPoint", e.target.value)}
+                  />
+                </div>
+              </div>
+            ))}
+
+            <Button type="button" variant="outline" onClick={addProduct} className="rounded-xl">
+              <Plus className="h-4 w-4 mr-2" />
+              Add another product
+            </Button>
+          </div>
+        )
+      }
+
       default:
         return null
     }
@@ -637,7 +740,6 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
           {isLastSection ? (
             <Button
               onClick={onGeneratePlan}
-              // disabled={!canProceed}
               className="bg-gradient-to-r from-orange-500 to-red-500 hover:from-orange-600 hover:to-red-600 text-white rounded-2xl px-8 py-3 font-semibold transition-all duration-300 transform hover:scale-105"
             >
               <Wand2 className="h-4 w-4 mr-2" />

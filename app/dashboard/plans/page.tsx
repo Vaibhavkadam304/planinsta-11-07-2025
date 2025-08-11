@@ -19,7 +19,7 @@ export default async function MyPlansPage() {
 
   const { data: plans = [] } = await supabase
     .from("business_plans")
-    .select("id, plan_name, created_at")
+    .select("id, plan_name, created_at, plan_data") // ← add plan_data
     .eq("user_id", user.id)
     .is("trashed_at", null)
     .order("created_at", { ascending: false })

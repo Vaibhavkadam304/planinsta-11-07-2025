@@ -2,9 +2,10 @@
 "use client"
 
 import { useToast } from "@/components/ui/use-toast"
+import { useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Card, CardContent, CardTitle } from "@/components/ui/card"
-import { Trash2, Download } from "lucide-react"
+import { Trash2, Loader2, Download } from "lucide-react"
 import Link from "next/link"
 import { ConfirmDelete } from "@/components/ConfirmDelete"
 import { exportBusinessPlanDocx } from "@/app/utils/exportDocx"
@@ -19,6 +20,7 @@ export default function PlanCard({
   deleting?: boolean
 }) {
   const { toast } = useToast()
+  const [downloading, setDownloading] = useState(false)
 
   const doDelete = async () => {
     try {
@@ -57,28 +59,57 @@ export default function PlanCard({
 
       {/* Actions */}
       <div className="mt-6 flex items-center justify-between gap-3">
-       {/* <Link
-          href={`/dashboard/plans/${plan.id}`}
-          className="text-sm font-medium underline-offset-4 hover:underline"
-        >
-          Open
-        </Link> */}
 
         {/* minimal: hit your server download route */}
         <Button
           size="sm"
-          // variant="outline"
+          variant="outline"
+          disabled={downloading}
           className="inline-flex items-center gap-1"
-          onClick={() =>
-            exportBusinessPlanDocx(
-                { businessName: plan.plan_name },
-                plan.plan_json
+          onClick={async () => {
+            try {
+              setDownloading(true)
+
+              let generated = plan.plan_data
+              if (!generated) {
+                const res = await fetch(`/api/plans/${plan.id}/content`)
+                const full = await res.json()
+                generated = full.plan_data || full.plan_json
+              }
+
+              await exportBusinessPlanDocx(
+                { businessName: plan.plan_name ?? "Business Plan" },
+                generated
               )
-          }
+
+              toast({
+                title: "Download ready",
+                description: `Exported “${plan.plan_name}”.`,
+              })
+            } catch (err: any) {
+              console.error(err)
+              toast({
+                title: "Download failed",
+                description: err?.message ?? "Something went wrong while exporting.",
+                variant: "destructive",
+              })
+            } finally {
+              setDownloading(false)
+            }
+          }}
         >
-          <Download className="w-4 h-4" />
-          Download
-        </Button>
+          {downloading ? (
+            <>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Preparing…
+            </>
+          ) : (
+            <>
+              <Download className="w-4 h-4" />
+              Download
+            </>
+          )}
+      </Button>
 
         <ConfirmDelete
           trigger={

@@ -21,7 +21,8 @@ import {
   Zap,
 } from "lucide-react"
 import Link from "next/link"
-import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/page"
+// ✅ use types from PlanBuilderClient
+import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
 
 interface PlanOutputProps {
   planData: BusinessPlanData
@@ -74,6 +75,9 @@ export function PlanOutput({
     setOpenSection(openSection === key ? null : key)
   }
 
+  // ✅ how many products to render (and label with names)
+  const productCount = Array.isArray(planData.products) ? planData.products.length : 0
+
   const sections = [
     {
       key: "executiveSummary",
@@ -123,7 +127,7 @@ export function PlanOutput({
       ],
       render: () => (
         <>
-           <h3 id="companyOverview" className="font-bold">Vision Statement</h3>
+          <h3 id="companyOverview" className="font-bold">Vision Statement</h3>
           <ReactMarkdown>
             {generatedPlan.companyOverview.visionStatement}
           </ReactMarkdown>
@@ -159,29 +163,34 @@ export function PlanOutput({
       title: "Products",
       description: "Overview, details, USPs, roadmap & IP status",
       icon: Target,
+      // ✅ dynamic subsections based on count + names
       subsections: [
         { key: "overview", title: "Overview" },
-        // dynamically generate Product 1–10
-        ...Array.from({ length: 10 }, (_, i) => ({
+        ...Array.from({ length: productCount }, (_, i) => ({
           key: `product${i + 1}`,
-          title: `Product ${i + 1}`,
+          title: `Product ${i + 1}${planData.products?.[i]?.name ? `: ${planData.products[i].name}` : ""}`,
         })),
         { key: "uniqueSellingPropositions", title: "Unique Selling Propositions (USPs)" },
         { key: "developmentRoadmap", title: "Development Roadmap" },
         { key: "intellectualPropertyRegulatoryStatus", title: "Intellectual Property & Regulatory Status" },
       ],
+      // (not used by the generic renderer, but updated for consistency)
       render: () => (
         <>
           <h3 id="products" className="font-bold">Overview</h3>
           <ReactMarkdown>{generatedPlan.products.overview}</ReactMarkdown>
-          {Array.from({ length: 10 }, (_, i) => (
+
+          {Array.from({ length: productCount }, (_, i) => (
             <React.Fragment key={i}>
-              <h3 className="font-bold">Product {i + 1}</h3>
+              <h3 className="font-bold">
+                {`Product ${i + 1}${planData.products?.[i]?.name ? `: ${planData.products[i].name}` : ""}`}
+              </h3>
               <ReactMarkdown>
                 {(generatedPlan.products as any)[`product${i + 1}`]}
               </ReactMarkdown>
             </React.Fragment>
           ))}
+
           <h3 className="font-bold">Unique Selling Propositions (USPs)</h3>
           <ReactMarkdown>
             {generatedPlan.products.uniqueSellingPropositions}
@@ -212,7 +221,6 @@ export function PlanOutput({
         { key: "productsDifferentiation", title: "Products’ Differentiation" },
         { key: "barriersToEntry", title: "Barriers to Entry" },
       ],
-      
       render: () => (
         <>
           <h3 id="marketAnalysis" className="font-bold">Industry Overview &amp; Size</h3>
@@ -310,11 +318,11 @@ export function PlanOutput({
           </ReactMarkdown>
           <h3 className="font-bold">Infrastructure</h3>
           <ReactMarkdown>{generatedPlan.operationsPlan.infrastructure}</ReactMarkdown>
-          <h3 className="font-bold">Customer Onboarding‑to‑Renewal Workflow</h3>
+          <h3 className="font-bold">Customer Onboarding-to-Renewal Workflow</h3>
           <ReactMarkdown>
             {generatedPlan.operationsPlan.customerOnboardingToRenewalWorkflow}
           </ReactMarkdown>
-          <h3 className="font-bold">Cross‑Functional Communication &amp; Decision‑Making</h3>
+          <h3 className="font-bold">Cross-Functional Communication &amp; Decision-Making</h3>
           <ReactMarkdown>
             {generatedPlan.operationsPlan.crossFunctionalCommunicationDecisionMaking}
           </ReactMarkdown>
@@ -352,7 +360,7 @@ export function PlanOutput({
         </>
       ),
     },
-   {
+    {
       key: "financialPlan",
       title: "Financial Plan",
       description: "Assumptions, forecasts, P&L, cash flow & metrics",
@@ -569,7 +577,7 @@ export function PlanOutput({
         </>
       ),
     },
-  ] as const
+  ]
 
   const completedSections = sections.filter((s) => {
     const content = (generatedPlan as any)[s.key]
@@ -587,7 +595,7 @@ export function PlanOutput({
   return (
     <div className="flex h-screen bg-gray-50">         {/* use exact viewport height */}
       {/* Sidebar */}
-       <nav className="sticky top-0 h-[calc(100vh-2rem)] overflow-y-auto w-56 px-4 py-12 bg-white no-scrollbar">
+      <nav className="sticky top-0 h-[calc(100vh-2rem)] overflow-y-auto w-56 px-4 py-12 bg-white no-scrollbar">
         <ul className="space-y-2 text-sm">
           {sections.map((s) => (
             <li key={s.key}>
@@ -645,7 +653,6 @@ export function PlanOutput({
           </div>
         </div>
 
-
         {/* Sections */}
         <div className="px-6 pt-2 pb-0">
           <div className="max-w-3xl mx-auto space-y-6">
@@ -695,23 +702,20 @@ export function PlanOutput({
                       </div>
                     </CardHeader>
 
-
                     <Separator className="mx-6" />
                     <CardContent className="pt-6 px-6 space-y-6">
                       {section.subsections.map(({ key: subKey, title }) => {
                         const raw = (generatedPlan as any)[section.key][subKey]
 
-                        // 1) If this subsection is an array, skip all the manual-edit
-                        //    <textarea> / pencil icon logic and render a native table instead:
+                        // 1) If this subsection is an array, render a table:
                         if (Array.isArray(raw)) {
                           return (
                             <div key={subKey} className="space-y-2">
                               <h4 className="font-bold">{title}</h4>
                               <table className="w-full table-auto border-collapse border">
                                 <thead>
-                                  {/** you can switch on subKey if you need different headers **/}
                                   <tr>
-                                    {Object.keys(raw[0]).map((col) => (
+                                    {Object.keys(raw[0] || {}).map((col) => (
                                       <th key={col} className="border px-2 py-1 text-left">
                                         {col}
                                       </th>
@@ -734,9 +738,7 @@ export function PlanOutput({
                           )
                         }
 
-                        // 2) Otherwise, it’s just a string, so you still get your
-                        //    inline‐edit pencil + textarea logic:
-
+                        // 2) Otherwise render markdown with inline-edit controls
                         const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)
                         const isEditing =
                           manualEditingSection === section.key &&
@@ -792,7 +794,6 @@ export function PlanOutput({
                         )
                       })}
                     </CardContent>
-
                   </Card>
                 </section>
               )

@@ -16,6 +16,7 @@ type Plan = {
   id: string
   plan_name: string
   created_at: string
+  plan_data?: any // so PlanCard can export without fetching again
   // add other fields you render in PlanCard if needed
 }
 

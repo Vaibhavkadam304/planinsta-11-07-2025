@@ -8,6 +8,7 @@ import nodemailer from "nodemailer"
 import { Configuration, OpenAIApi } from "openai"
 import { z } from "zod"
 import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient"
+
 // …above your generateBusinessPlan function…
 function stripFences(text: string): string {
   let t = text.trim()
@@ -19,7 +20,6 @@ function stripFences(text: string): string {
   }
   return t.trim()
 }
-
 
 export type GenerateBusinessPlanResult =
   | { success: true; plan: GeneratedPlan; planId: string }
@@ -150,6 +150,28 @@ export async function generateBusinessPlan(
     const supabase = createServerComponentClient({
       cookies: () => cookiesStore
     })
+
+    // 🔹 Hints from user selections to be woven into ONE subsection (Distribution Channels)
+    const selectedChannels = Array.isArray(formData.marketingChannels)
+      ? formData.marketingChannels.filter(Boolean)
+      : []
+    const pricingHint = (formData.pricingStrategy || "").trim()
+    const salesTeamHint = formData.hasSalesTeam ? "Yes" : "No"
+
+    const marketingUserHints = `
+    USER HINTS FOR MARKETING & SALES (weave into one subsection only):
+    • Selected marketing channels: ${selectedChannels.length ? selectedChannels.join(", ") : "not specified"}
+    ${pricingHint ? `• Pricing: ${pricingHint}` : ""}
+    • Sales team: ${salesTeamHint}
+    IMPORTANT: Incorporate the hints above naturally into the **Distribution Channels** subsection (its first paragraph). Do not create extra subsections or separate bullet groups for these hints.
+    `
+    const achievements = (formData.achievements ?? []).map(a => a.trim()).filter(Boolean)
+    const achievementsHint = achievements.length
+      ? `USER HINTS FOR EXECUTIVE SUMMARY → Past Milestones:
+    • Weave these achievements into the first paragraph (no extra bullets): ${achievements.join(", ")}`
+      : ""
+
+
     // 1) Generate the plan JSON via OpenAI
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
@@ -256,57 +278,77 @@ export async function generateBusinessPlan(
       - fundingNeeded  
       - fundingUseBreakdown  
     4. Keep each top-level section roughly 400–600 words…
-    `
+    5. Products section detail rules (IMPORTANT):
+   - products.overview: ~120–180 words.
+   - For each product string (product1 .. product10):
+     • Length: ~120–180 words
+     • Structure: one-sentence tagline, then 4–6 markdown bullets covering:
+       - Core features
+       - Integrations
+       - Target users / industries
+       - Primary use case
+       - Quantified benefit (e.g., "reduces manual scheduling time by ~30%")
+       - Roadmap next step
+   - Use names and features from formData.products[i] when available (e.g., Product 1 name "workflowai").
+   - Keep it concise, skimmable, and business-ready.
+   CRITICAL JSON RULES:
+  - Return STRICT JSON only. No markdown, no comments.
+  - All currency/amount fields MUST be strings with digits/commas only. Do NOT include “$”, “₹”, or any currency symbol. Example: "50,000" not $50,000.
+  - Never write bare currency outside quotes.
+   
+   `
 
     const userPrompt = `Generate a comprehensive business plan using this form input.
 
     Make sure you populate the Executive Summary’s **fundingRequirementsUsageOfFunds** section (“Funding Requirements & Usage”).
+    ${marketingUserHints}
+    ${achievementsHint}
 
+    FORM DATA:
     ${JSON.stringify(formData, null, 2)}
 
     Be sure to include the full 'products' section with overview, ten product entries, USPs, development roadmap, and IP/regulatory status.`
-   const config = new Configuration({
-  apiKey: process.env.OPENAI_API_KEY,
-})
-const client = new OpenAIApi(config)
 
-// ── call the chat endpoint ──
-    // ── retry up to 3 times with jittered back‑off ──
-let completion;
-const maxRetries = 3;
-let attempt = 0;
+    const config = new Configuration({
+      apiKey: process.env.OPENAI_API_KEY,
+    })
+    const client = new OpenAIApi(config)
 
-while (true) {
-  try {
-    // ← your real OpenAI call with system + user prompts
-    completion = await client.createChatCompletion({
-      model: "gpt-4o",
-      messages: [
-        { role: "system", content: systemPrompt },
-        { role: "user",   content: userPrompt },
-      ],
-    });
-    break; // success! exit the loop
-  } catch (err: any) {
-    const status = err?.response?.status;
-    // if we hit rate‑limit and still have retries left:
-    if (status === 429 && attempt < maxRetries) {
-      // exponential base: 1s, 2s, 4s…
-      const base = Math.pow(2, attempt) * 1000;
-      // jitter ±20%
-      const jitter = Math.random() * base * 0.2;
-      const delayMs = base + (Math.random() < 0.5 ? -jitter : jitter);
-      console.warn(`Rate limit, retrying in ${delayMs.toFixed(0)}ms…`);
-      await new Promise((r) => setTimeout(r, delayMs));
-      attempt++;
-      continue; // retry
+    // ── call the chat endpoint ──
+    // ── retry up to 3 times with jittered back-off ──
+    let completion
+    const maxRetries = 3
+    let attempt = 0
+
+    while (true) {
+      try {
+        completion = await client.createChatCompletion({
+          model: "gpt-4o",
+          // @ts-expect-error: response_format not in v3 types, but API supports it
+          response_format: { type: "json_object" }, // <-- add this
+          temperature: 0.2, // optional: make outputs more deterministic
+          messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user",   content: userPrompt },
+          ],
+        })
+        break // success! exit the loop
+      } catch (err: any) {
+        const status = err?.response?.status
+        if (status === 429 && attempt < maxRetries) {
+          const base = Math.pow(2, attempt) * 1000
+          const jitter = Math.random() * base * 0.2
+          const delayMs = base + (Math.random() < 0.5 ? -jitter : jitter)
+          console.warn(`Rate limit, retrying in ${delayMs.toFixed(0)}ms…`)
+          await new Promise((r) => setTimeout(r, delayMs))
+          attempt++
+          continue
+        }
+        throw err
+      }
     }
-    // otherwise bubble up the error
-    throw err;
-  }
-}
 
-     // ── grab the raw string and strip any ```json fences ──
+    // ── grab the raw string and strip any ```json fences ──
     let raw = completion.data.choices?.[0]?.message?.content!
     if (!raw) throw new Error("OpenAI returned no content")
 
@@ -327,7 +369,6 @@ while (true) {
     try {
       parsed = JSON.parse(raw)
     } catch (firstErr) {
-      // last-ditch: retry on the `{…}` slice in case there was leading/trailing garbage
       const start = raw.indexOf("{")
       const end   = raw.lastIndexOf("}")
       if (start === -1 || end === -1) throw firstErr
@@ -335,8 +376,9 @@ while (true) {
       parsed = JSON.parse(jsonOnly)
     }
 
-  // validate & coerce with Zod
-  const planObject = businessPlanSchema.parse(parsed)
+    // validate & coerce with Zod
+    const planObject = businessPlanSchema.parse(parsed)
+
     // 2) Authenticate user
     const {
       data: { user },
@@ -412,6 +454,8 @@ while (true) {
         .update({ plan_id: planId })
         .eq("id", latestPayment.id)
     }
+
+    // Email notify (optional)
     try {
       const transporter = nodemailer.createTransport({
         host:   process.env.SMTP_HOST,
@@ -421,18 +465,18 @@ while (true) {
           user: process.env.SMTP_USER,
           pass: process.env.SMTP_PASS,
         },
-      });
+      })
       try {
-          await transporter.verify();  
-          console.log("✅  SMTP credentials are valid!");
-        } catch (err) {
-          console.error("❌  SMTP credentials failed:", err);
-        }
+        await transporter.verify()
+        console.log("✅  SMTP credentials are valid!")
+      } catch (err) {
+        console.error("❌  SMTP credentials failed:", err)
+      }
 
       const fullName = user?.user_metadata?.full_name ?? user?.email
       const userCreated = user?.created_at
         ? new Date(user.created_at).toLocaleString()
-        : 'Unknown'
+        : "Unknown"
 
       await transporter.sendMail({
         from: process.env.EMAIL_FROM,
@@ -444,12 +488,11 @@ while (true) {
           <p><strong>Email:</strong> ${user?.email}</p>
           <p><strong>Account Created:</strong> ${userCreated}</p>
           <p><strong>Plan Generated At:</strong> ${new Date().toLocaleString()}</p>
-        `
+        `,
       })
     } catch (e) {
-      console.error("❌ Email failed:", e);
+      console.error("❌ Email failed:", e)
     }
-    // ↑↑↑ end email notification ↑↑↑
 
     return { success: true, plan: planObject as GeneratedPlan, planId: planId! }
   } catch (err: any) {

@@ -14,7 +14,11 @@ function formatAmount(paise: number, currency = "INR") {
 }
 
 export default async function PaymentHistoryPage() {
-  const supabase = createServerComponentClient({ cookies })
+  const cookieStore = await cookies()
+  const supabase = createServerComponentClient({
+    cookies: () => cookieStore,
+  })
+
   const {
     data: { user },
   } = await supabase.auth.getUser()
@@ -28,7 +32,6 @@ export default async function PaymentHistoryPage() {
   return (
     <DashboardLayout currentPage="payments" userName={userName}>
       <div className="p-8">
-        {/* Gradient heading */}
         <div className="mb-8 text-center">
           <h1 className="text-3xl font-semibold bg-gradient-to-r from-[#FF7A00] to-[#F0435C] bg-clip-text text-transparent inline-flex items-center gap-2">
             <CreditCard className="w-7 h-7" />
@@ -45,14 +48,14 @@ export default async function PaymentHistoryPage() {
               <Card key={p.id} className="bg-white shadow-sm hover:shadow-md transition">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-base flex items-center gap-2">
-                    <IndianRupee className="w-4 h-4 text-green-600" />
+                    <IndianRupee className="w-4 h-4" />
                     {formatAmount(p.amount, p.currency)}
                   </CardTitle>
                 </CardHeader>
                 <CardContent className="space-y-2 text-sm text-gray-600">
                   <p className="flex items-center gap-2">
-                    <CalendarDays className="w-4 h-4 text-blue-600" />
-                    {new Date(p.paid_at).toLocaleString()}
+                    <CalendarDays className="w-4 h-4" />
+                    {p.paid_at ? new Date(p.paid_at).toLocaleString() : "—"}
                   </p>
                   <p className="break-all">
                     <span className="font-medium">Order ID:</span> {p.razorpay_order}

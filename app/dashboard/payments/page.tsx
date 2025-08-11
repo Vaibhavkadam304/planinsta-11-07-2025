@@ -2,7 +2,7 @@
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs";
 import { cookies } from "next/headers";
 import { notFound } from "next/navigation";
-import {ProtectedRoute} from "@/components/auth/protected-route";
+import { ProtectedRoute } from "@/components/auth/protected-route";
 import DashboardLayout from "@/components/dashboard-layout";
 
 interface Payment {
@@ -14,18 +14,21 @@ interface Payment {
 }
 
 export default async function PaymentsPage() {
-  const supabase = createServerComponentClient({ cookies: () => cookies() });
+  const cookieStore = await cookies();
+  const supabase = createServerComponentClient({
+    cookies: () => cookieStore,
+  });
 
   const {
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user?.id) notFound(); // or return <p>Please sign in.</p>
+  if (!user?.id) notFound();
 
   const { data: payments, error } = await supabase
     .from<Payment>("payments")
     .select("id, amount, currency, status, paid_at")
-    .eq("user_id", user.id) // ✅ only this user’s payments
+    .eq("user_id", user.id)
     .order("paid_at", { ascending: false });
 
   if (error) {
@@ -56,7 +59,7 @@ export default async function PaymentsPage() {
               {payments.map((p) => (
                 <tr key={p.id} className="odd:bg-white even:bg-gray-100">
                   <td className="p-2">
-                    {new Date(p.paid_at).toLocaleString()}
+                    {p.paid_at ? new Date(p.paid_at).toLocaleString() : "—"}
                   </td>
                   <td className="p-2 text-right">
                     {p.currency} {(p.amount / 100).toFixed(2)}

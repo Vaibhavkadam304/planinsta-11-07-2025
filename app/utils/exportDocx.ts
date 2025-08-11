@@ -7,21 +7,17 @@ import {
   TableCell,
   Paragraph,
   TextRun,
-  PageNumber,
   AlignmentType,
-  VerticalAlign,
   BorderStyle,
   Document,
   Packer,
-  UnderlineType,
   ShadingType,
   WidthType,
-  TableLayoutType
 } from "docx";
 
 import { saveAs } from "file-saver";
-import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient";
-
+// ✅ import types from PlanBuilderClient in components
+import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient";
 
 const coercePlan = (input: any) => {
   try {
@@ -45,7 +41,7 @@ const makeSafe = (obj: any) => {
     "cashFlowRunwayAnalysis",
   ]);
 
-  // NEW: treat these as nested objects if missing
+  // treat these as nested objects if missing
   const SECTION_KEYS = new Set([
     "executiveSummary",
     "companyOverview",
@@ -68,7 +64,7 @@ const makeSafe = (obj: any) => {
 
           if (val === undefined || val === null) {
             if (ARRAY_KEYS.has(prop)) return [];
-            if (SECTION_KEYS.has(prop)) return wrap({}); // ← key tweak
+            if (SECTION_KEYS.has(prop)) return wrap({});
             return "";
           }
 
@@ -84,43 +80,40 @@ const makeSafe = (obj: any) => {
   return wrap(obj || {});
 };
 
-
-
-
 export async function exportBusinessPlanDocx(
-  planData: BusinessPlanData,
-  generatedPlan: GeneratedPlan
-)
-
-
-{
-  
+  planData: Partial<BusinessPlanData> = {},
+  generatedPlan: GeneratedPlan | string | Record<string, any>
+) {
   const rawPlan = coercePlan(generatedPlan);
   const safePlan = makeSafe(rawPlan) as any;
+  const capFirst = (s: string) =>
+  s ? s.trim().charAt(0).toUpperCase() + s.trim().slice(1) : "";
 
   const {
-  executiveSummary,
-  companyOverview,
-  products,
-  marketAnalysis,
-  marketingSalesStrategies,
-  operationsPlan,
-  managementOrganization,
-  financialPlan,
-  riskAnalysisMitigation,
-  appendices,
-  businessName: planBusinessName,
-  companyName: planCompanyName,
-} = safePlan;
+    executiveSummary,
+    companyOverview,
+    products,
+    marketAnalysis,
+    marketingSalesStrategies,
+    operationsPlan,
+    managementOrganization,
+    financialPlan,
+    riskAnalysisMitigation,
+    appendices,
+    businessName: planBusinessName,
+    companyName: planCompanyName,
+  } = safePlan;
 
-const docTitle =
-  planData?.businessName || planBusinessName || planCompanyName || "Business Plan";
+  const docTitle =
+    planData?.businessName || planBusinessName || planCompanyName || "Business Plan";
+
+  // ✅ how many products to export
+  const productCount = Array.isArray(planData.products) ? planData.products.length : 0;
 
   const pageHeader = new Header({
     children: [
       new Paragraph({
         alignment: AlignmentType.CENTER,
-        // light-gray fill behind the whole paragraph
         shading: {
           type: ShadingType.CLEAR,
           fill: "F2F2F2",
@@ -129,22 +122,25 @@ const docTitle =
         border: {
           bottom: {
             style: BorderStyle.SINGLE,
-            size: 6,            // a bit thicker
+            size: 6,
             color: "CCCCCC",
           },
         },
         children: [
-          // Business Name: bold, larger, underlined
           new TextRun({
             text: docTitle.toUpperCase(),
             bold: true,
-            size: 32,               // 16pt
+            size: 32,
             font: "Calibri Light",
           }),
         ],
       }),
     ],
-  })
+  });
+
+  // ✅ helper: start each main section on a new page
+  const H1 = (text: string) =>
+    new Paragraph({ text, style: "Heading1", pageBreakBefore: true });
 
   const doc = new Document({
     styles: {
@@ -159,13 +155,35 @@ const docTitle =
           paragraph: { spacing: { after: 300 }, alignment: AlignmentType.CENTER },
         },
         {
+          id: "CoverTitle",
+          name: "Cover Title",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 48, bold: true, font: "Microsoft YaHei UI" },
+          // ~3600 twips ≈ 2.5 inches; pushes the title near vertical center
+          paragraph: { alignment: AlignmentType.CENTER, spacing: { before: 3600, after: 120 } },
+        },
+        {
+          id: "CoverSubtitle",
+          name: "Cover Subtitle",
+          basedOn: "Normal",
+          next: "Normal",
+          quickFormat: true,
+          run: { size: 56, bold: true, font: "Microsoft YaHei UI" },
+          paragraph: { alignment: AlignmentType.CENTER, spacing: { after: 300 } },
+        },
+        {
           id: "Heading1",
           name: "Custom Heading 1",
           basedOn: "Normal",
           next: "Normal",
           quickFormat: true,
           run: { size: 32, bold: true, font: "Calibri" },
-          paragraph: { spacing: { before: 300, after: 150 } },
+          paragraph: {
+            // pageBreakBefore moved to paragraph-level via H1() helper
+            spacing: { before: 300, after: 150 },
+          },
         },
         {
           id: "Heading2",
@@ -185,23 +203,23 @@ const docTitle =
           run: { size: 22, font: "Calibri" },
           paragraph: {
             spacing: { line: 276, after: 100 },
-            alignment: AlignmentType.JUSTIFIED,    // ← add this
+            alignment: AlignmentType.JUSTIFIED,
           },
         },
       ],
 
-      // @ts-ignore: tableStyles isn’t in the official typings
+      // @ts-ignore
       tableStyles: [
         {
           id: "BusinessPlanTable",
           name: "Business Plan Table",
           borders: {
-            top:    { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            top: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
             bottom: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            left:   { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
-            right:  { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            left: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
+            right: { style: BorderStyle.SINGLE, size: 1, color: "CCCCCC" },
             insideHorizontal: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
-            insideVertical:   { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
+            insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
           },
           cellMargin: { top: 100, bottom: 100, left: 100, right: 100 },
         },
@@ -219,14 +237,12 @@ const docTitle =
           },
         },
         children: [
-          // Cover / Title
-          new Paragraph({
-            text: docTitle.replace(/\b\w/g, (c) => c.toUpperCase()),
-            style: "TitleStyle",
-          }),
+          // Cover / Title (centered & vertically pushed)
+          new Paragraph({ text: capFirst(docTitle), style: "CoverTitle" }),
+          new Paragraph({ text: "Business Plan", style: "CoverSubtitle" }),
 
           // 1. Executive Summary
-          new Paragraph({ text: "Executive Summary", style: "Heading1" }),
+          H1("Executive Summary"),
           new Paragraph({ text: "Business Overview", style: "Heading2" }),
           new Paragraph({ text: executiveSummary.businessOverview, style: "BodyText" }),
           new Paragraph({ text: "Funding Requirements & Usage of Funds", style: "Heading2" }),
@@ -237,7 +253,7 @@ const docTitle =
           new Paragraph({ text: executiveSummary.problemStatementSolution, style: "BodyText" }),
 
           // 2. Company Overview
-          new Paragraph({ text: "Company Overview", style: "Heading1" }),
+          H1("Company Overview"),
           new Paragraph({ text: "Vision Statement", style: "Heading2" }),
           new Paragraph({ text: companyOverview.visionStatement, style: "BodyText" }),
           new Paragraph({ text: "Mission Statement", style: "Heading2" }),
@@ -254,13 +270,21 @@ const docTitle =
           new Paragraph({ text: companyOverview.companyObjectives, style: "BodyText" }),
 
           // 3. Products
-          new Paragraph({ text: "Products", style: "Heading1" }),
+          H1("Products"),
           new Paragraph({ text: "Overview", style: "Heading2" }),
           new Paragraph({ text: products.overview, style: "BodyText" }),
-          ...[1, 2, 3, 4, 5, 6, 7, 8, 9, 10].flatMap((i) => [
-            new Paragraph({ text: `Product ${i}`, style: "Heading2" }),
-            new Paragraph({ text: (products as any)[`product${i}`], style: "BodyText" }),
-          ]),
+
+          // ✅ Only export the products the user entered, with names
+          ...Array.from({ length: productCount }, (_, idx) => {
+            const i = idx + 1;
+            const name = planData.products?.[idx]?.name;
+            const content = (products as any)[`product${i}`] as string | undefined;
+            return [
+              new Paragraph({ text: `Product ${i}${name ? `: ${name}` : ""}`, style: "Heading2" }),
+              new Paragraph({ text: content || "", style: "BodyText" }),
+            ];
+          }).flat(),
+
           new Paragraph({ text: "Unique Selling Propositions (USPs)", style: "Heading2" }),
           new Paragraph({ text: products.uniqueSellingPropositions, style: "BodyText" }),
           new Paragraph({ text: "Development Roadmap", style: "Heading2" }),
@@ -269,7 +293,7 @@ const docTitle =
           new Paragraph({ text: products.intellectualPropertyRegulatoryStatus, style: "BodyText" }),
 
           // 4. Market Analysis
-          new Paragraph({ text: "Market Analysis", style: "Heading1" }),
+          H1("Market Analysis"),
           new Paragraph({ text: "Industry Overview & Size", style: "Heading2" }),
           new Paragraph({ text: marketAnalysis.industryOverviewSize, style: "BodyText" }),
           new Paragraph({ text: "Growth Trends & Drivers", style: "Heading2" }),
@@ -288,7 +312,7 @@ const docTitle =
           new Paragraph({ text: marketAnalysis.barriersToEntry, style: "BodyText" }),
 
           // 5. Marketing & Sales Strategies
-          new Paragraph({ text: "Marketing & Sales Strategies", style: "Heading1" }),
+          H1("Marketing & Sales Strategies"),
           new Paragraph({ text: "Distribution Channels", style: "Heading2" }),
           new Paragraph({ text: marketingSalesStrategies.distributionChannels, style: "BodyText" }),
           new Paragraph({ text: "Technology Cost Structure", style: "Heading2" }),
@@ -301,7 +325,7 @@ const docTitle =
           new Paragraph({ text: marketingSalesStrategies.integratedFunnelFinancialImpact, style: "BodyText" }),
 
           // 6. Operations Plan
-          new Paragraph({ text: "Operations Plan", style: "Heading1" }),
+          H1("Operations Plan"),
           new Paragraph({ text: "Overview", style: "Heading2" }),
           new Paragraph({ text: operationsPlan.overview, style: "BodyText" }),
           new Paragraph({ text: "Organizational Structure & Team Responsibilities", style: "Heading2" }),
@@ -316,7 +340,7 @@ const docTitle =
           new Paragraph({ text: operationsPlan.keyPerformanceMetricsGoals, style: "BodyText" }),
 
           // 7. Management & Organization
-          new Paragraph({ text: "Management & Organization", style: "Heading1" }),
+          H1("Management & Organization"),
           new Paragraph({ text: "Overview", style: "Heading2" }),
           new Paragraph({ text: managementOrganization.overview, style: "BodyText" }),
           new Paragraph({ text: "Organizational Chart", style: "Heading2" }),
@@ -325,7 +349,7 @@ const docTitle =
           new Paragraph({ text: managementOrganization.hiringPlanKeyRoles, style: "BodyText" }),
 
           // 8. Financial Plan
-          new Paragraph({ text: "Financial Plan", style: "Heading1" }),
+          H1("Financial Plan"),
           new Paragraph({ text: "Overview", style: "Heading2" }),
           new Paragraph({ text: financialPlan.overview, style: "BodyText" }),
           new Paragraph({ text: "Key Assumptions", style: "Heading2" }),
@@ -333,34 +357,28 @@ const docTitle =
 
           new Paragraph({ text: "Revenue Forecast", style: "Heading2" }),
           new Table({
-            style: "BusinessPlanTable",                  // your existing borders + cellMargin
-            alignment: AlignmentType.CENTER,      // ← just this
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
             rows: [
-              // — Header row with light shading
               new TableRow({
                 children: [
                   new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
                     children: [ new Paragraph({ text: "Period", style: "BodyText" }) ]
                   }),
                   new TableCell({
-                    width: { size: 6000, type: WidthType.DXA },   // about 2 inches
+                    width: { size: 6000, type: WidthType.DXA },
                     shading: { fill: "EEEEEE" },
                     children: [ new Paragraph({ text: "Amount", style: "BodyText" }) ]
                   }),
                 ],
               }),
-              // — Data rows un-shaded
-              ...financialPlan.revenueForecast.map(r =>
+              ...financialPlan.revenueForecast.map((r: any) =>
                 new TableRow({
                   children: [
-                    new TableCell({
-                      children: [ new Paragraph({ text: r.period, style: "BodyText" }) ]
-                    }),
-                    new TableCell({
-                      children: [ new Paragraph({ text: r.amount, style: "BodyText" }) ]
-                    }),
+                    new TableCell({ children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.amount, style: "BodyText" }) ] }),
                   ],
                 })
               ),
@@ -369,28 +387,28 @@ const docTitle =
 
           new Paragraph({ text: "Cost of Goods Sold (COGS)", style: "Heading2" }),
           new Table({
-            style: "BusinessPlanTable",           // ← reference your tableStyles ID
-            alignment: AlignmentType.CENTER,      // ← just this
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
             rows: [
               new TableRow({
                 children: [
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background  
-                  children: [ new Paragraph({ text: "Period", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 6000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "COGS", style: "BodyText" }) ] }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 6000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "COGS", style: "BodyText" }) ]
+                  }),
                 ],
               }),
-              ...financialPlan.cogs.map((r) =>
+              ...financialPlan.cogs.map((r: any) =>
                 new TableRow({
                   children: [
-                    new TableCell({ 
-                    children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                      children: [ new Paragraph({ text: r.amount, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.amount, style: "BodyText" }) ] }),
                   ],
                 })
               ),
@@ -399,22 +417,24 @@ const docTitle =
 
           new Paragraph({ text: "Operating Expenses (OpEx)", style: "Heading2" }),
           new Table({
-            style: "BusinessPlanTable",           // ← reference your tableStyles ID
-            alignment: AlignmentType.CENTER,      // ← just this
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
             rows: [
               new TableRow({
                 children: [
                   new TableCell({
-                  width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                  shading: { fill: "EEEEEE" },         // light grey background
-                  children: [ new Paragraph({ text: "Period", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 6000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "OpEx", style: "BodyText" }) ] }),
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 6000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "OpEx", style: "BodyText" }) ]
+                  }),
                 ],
               }),
-              ...financialPlan.opEx.map((r) =>
+              ...financialPlan.opEx.map((r: any) =>
                 new TableRow({
                   children: [
                     new TableCell({ children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
@@ -427,30 +447,34 @@ const docTitle =
 
           new Paragraph({ text: "Projected Profit & Loss Statement (P&L)", style: "Heading2" }),
           new Table({
-            style: "BusinessPlanTable",           // ← reference your tableStyles ID
-            alignment: AlignmentType.CENTER,      // ← just this
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
             rows: [
               new TableRow({
                 children: [
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Gross Profit", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "EBITDA", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Net Income", style: "BodyText" }) ] }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Gross Profit", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "EBITDA", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Net Income", style: "BodyText" }) ]
+                  }),
                 ],
               }),
-              ...financialPlan.projectedPnl.map((r) =>
+              ...financialPlan.projectedPnl.map((r: any) =>
                 new TableRow({
                   children: [
                     new TableCell({ children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
@@ -465,58 +489,52 @@ const docTitle =
 
           new Paragraph({ text: "Cash Flow & Runway Analysis", style: "Heading2" }),
           new Table({
-            style: "BusinessPlanTable",           // ← reference your tableStyles ID
-            alignment: AlignmentType.CENTER,      // ← just this
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
             rows: [
               new TableRow({
                 children: [
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Begin Cash", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Inflows", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Outflows", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "End Cash", style: "BodyText" }) ] }),
-                  new TableCell({ 
-                    width: { size: 3000, type: WidthType.DXA },   // about 2 inches
-                    shading: { fill: "EEEEEE" },         // light grey background
-                    children: [ new Paragraph({ text: "Runway (mo)", style: "BodyText" }) ] }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Period", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Begin Cash", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Inflows", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Outflows", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "End Cash", style: "BodyText" }) ]
+                  }),
+                  new TableCell({
+                    width: { size: 3000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [ new Paragraph({ text: "Runway (mo)", style: "BodyText" }) ]
+                  }),
                 ],
               }),
-              ...financialPlan.cashFlowRunwayAnalysis.map((r) =>
+              ...financialPlan.cashFlowRunwayAnalysis.map((r: any) =>
                 new TableRow({
                   children: [
-                    new TableCell({ 
-                      
-                      children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                     
-                      children: [ new Paragraph({ text: r.beginningCash, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                      
-                      children: [ new Paragraph({ text: r.inflows, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                       
-                      children: [ new Paragraph({ text: r.outflows, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                          
-                      children: [ new Paragraph({ text: r.endingCash, style: "BodyText" }) ] }),
-                    new TableCell({ 
-                           
-                      children: [ new Paragraph({ text: r.runwayMonths, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.period, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.beginningCash, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.inflows, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.outflows, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.endingCash, style: "BodyText" }) ] }),
+                    new TableCell({ children: [ new Paragraph({ text: r.runwayMonths, style: "BodyText" }) ] }),
                   ],
                 })
               ),
@@ -536,7 +554,7 @@ const docTitle =
           new Paragraph({ text: financialPlan.summaryOutlook, style: "BodyText" }),
 
           // 9. Risk Analysis & Mitigation
-          new Paragraph({ text: "Risk Analysis & Mitigation", style: "Heading1" }),
+          H1("Risk Analysis & Mitigation"),
           new Paragraph({ text: "Overview", style: "Heading2" }),
           new Paragraph({ text: riskAnalysisMitigation.overview, style: "BodyText" }),
           new Paragraph({ text: "Market Risks", style: "Heading2" }),
@@ -551,7 +569,7 @@ const docTitle =
           new Paragraph({ text: riskAnalysisMitigation.contingencyPlans, style: "BodyText" }),
 
           // 10. Appendices
-          new Paragraph({ text: "Appendices", style: "Heading1" }),
+          H1("Appendices"),
           new Paragraph({ text: "Glossary", style: "Heading2" }),
           new Paragraph({ text: appendices.glossary, style: "BodyText" }),
           new Paragraph({ text: "Management Teams’ Resources", style: "Heading2" }),
@@ -568,7 +586,7 @@ const docTitle =
   const blob = new Blob([buffer], {
     type: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   });
-  const safeName = docTitle
+  const safeName = (docTitle || "Business Plan")
     .toLowerCase()
     .replace(/\s+/g, "-")
     .replace(/[^a-z0-9\-]/g, "")
