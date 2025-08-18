@@ -1,3 +1,4 @@
+// components/plan-builder/quiz-interface.tsx
 "use client"
 
 import { useState } from "react"
@@ -12,8 +13,8 @@ import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
 import { ChevronLeft, ChevronRight, Plus, Minus, Wand2 } from "lucide-react"
 
-// ⬅️ FIXED: import the type from PlanBuilderClient
 import type { BusinessPlanData } from "@/components/plan-builder/PlanBuilderClient"
+import SuggestedChoices from "@/components/SuggestedChoices"
 
 interface QuizInterfaceProps {
   data: BusinessPlanData
@@ -25,7 +26,6 @@ interface Question {
   id: string
   title: string
   description?: string
-  // ⬅️ EXTENDED: added "products"
   type: "text" | "textarea" | "select" | "multiselect" | "switch" | "list" | "keyvalue" | "products"
   field: keyof BusinessPlanData
   options?: string[]
@@ -62,7 +62,8 @@ const sections: Section[] = [
         type: "textarea",
         field: "description",
         required: true,
-        placeholder: "e.g., We help small businesses automate their workflow processes through AI-powered solutions",
+        placeholder:
+          "e.g., We help small businesses automate their workflow processes through AI-powered solutions",
       },
       {
         id: "business-model",
@@ -148,7 +149,6 @@ const sections: Section[] = [
       },
     ],
   },
-  // ⬇️ REPLACED: Product/Service section uses repeatable products block
   {
     id: "product-service",
     title: "Product / Service",
@@ -341,51 +341,42 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   const currentSection = sections[currentSectionIndex]
   const progress = ((currentSectionIndex + 1) / sections.length) * 100
 
+  // track which textarea has focus to trigger suggestions auto-load
+  const [activeSuggestionField, setActiveSuggestionField] =
+    useState<null | "visionStatement" | "shortTermGoal" | "longTermGoal">(null)
+
   const handleNext = () => {
-    if (currentSectionIndex < sections.length - 1) {
-      setCurrentSectionIndex(currentSectionIndex + 1)
-    }
+    if (currentSectionIndex < sections.length - 1) setCurrentSectionIndex(currentSectionIndex + 1)
   }
-
   const handlePrevious = () => {
-    if (currentSectionIndex > 0) {
-      setCurrentSectionIndex(currentSectionIndex - 1)
-    }
+    if (currentSectionIndex > 0) setCurrentSectionIndex(currentSectionIndex - 1)
   }
-
-  const handleInputChange = (field: keyof BusinessPlanData, value: any) => {
-    onChange({ [field]: value })
-  }
+  const handleInputChange = (field: keyof BusinessPlanData, value: any) => onChange({ [field]: value })
 
   const addListItem = (field: keyof BusinessPlanData) => {
     const currentValue = data[field] as string[]
     onChange({ [field]: [...currentValue, ""] })
   }
-
   const removeListItem = (field: keyof BusinessPlanData, index: number) => {
     const currentValue = data[field] as string[]
     const newValue = currentValue.filter((_, i) => i !== index)
     onChange({ [field]: newValue })
   }
-
   const updateListItem = (field: keyof BusinessPlanData, index: number, value: string) => {
     const currentValue = data[field] as string[]
     const newValue = [...currentValue]
     newValue[index] = value
     onChange({ [field]: newValue })
   }
-
   const addKeyValueItem = (field: keyof BusinessPlanData) => {
     const currentValue = data[field] as Array<{ item: string; amount: string }>
     onChange({ [field]: [...currentValue, { item: "", amount: "" }] })
   }
-
   const removeKeyValueItem = (field: keyof BusinessPlanData, index: number) => {
     const currentValue = data[field] as Array<{ item: string; amount: string }>
     const newValue = currentValue.filter((_, i) => i !== index)
     onChange({ [field]: newValue })
   }
-
   const updateKeyValueItem = (
     field: keyof BusinessPlanData,
     index: number,
@@ -397,7 +388,6 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
     newValue[index][itemField] = value
     onChange({ [field]: newValue })
   }
-
   const toggleMultiSelectOption = (field: keyof BusinessPlanData, option: string) => {
     const currentValue = data[field] as string[]
     const newValue = currentValue.includes(option)
@@ -407,8 +397,6 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   }
 
   const isLastSection = currentSectionIndex === sections.length - 1
-
-  // ⬇️ UPDATED: required logic respects products
   const requiredQuestions = currentSection.questions.filter((q) => q.required)
   const canProceed = requiredQuestions.every((q) => {
     if (q.type === "products") {
@@ -416,11 +404,7 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
       return prods.length > 0 && prods.every((p) => (p.name || "").trim().length > 0)
     }
     const value = data[q.field]
-    return typeof value === "string"
-      ? value.trim().length > 0
-      : Array.isArray(value)
-        ? value.length > 0
-        : true
+    return typeof value === "string" ? value.trim().length > 0 : Array.isArray(value) ? value.length > 0 : true
   })
 
   const renderQuestionInput = (question: Question) => {
@@ -437,16 +421,41 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
           />
         )
 
-      case "textarea":
+      case "textarea": {
+        const isVision = question.field === "visionStatement"
+        const isShort  = question.field === "shortTermGoal"
+        const isMid    = question.field === "longTermGoal"
         return (
-          <Textarea
-            value={currentValue as string}
-            onChange={(e) => handleInputChange(question.field, e.target.value)}
-            placeholder={question.placeholder}
-            className="rounded-2xl text-base p-4 min-h-[100px]"
-            rows={3}
-          />
+          <>
+            <Textarea
+              value={currentValue as string}
+              onChange={(e) => handleInputChange(question.field, e.target.value)}
+              onFocus={() => {
+                if (isVision || isShort || isMid) setActiveSuggestionField(question.field as any)
+              }}
+              placeholder={question.placeholder}
+              className="rounded-2xl text-base p-4 min-h-[100px]"
+              rows={3}
+            />
+
+            {(isVision || isShort || isMid) && (
+              <SuggestedChoices
+                oneLiner={String(data.description || "")}
+                businessModel={String(data.businessModel || "")}
+                stage={String(data.businessStage || "")}
+                target={
+                  isVision ? "longTermVision" :
+                  isMid    ? "midTermGoal" :
+                             "next12moGoal"
+                }
+                active={activeSuggestionField === question.field}
+                onPick={(text) => handleInputChange(question.field, text)}
+                className="mt-2"
+              />
+            )}
+          </>
         )
+      }
 
       case "select":
         return (
@@ -564,42 +573,24 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
           </div>
         )
 
-      // ⬇️ NEW: products repeater
       case "products": {
         const products = Array.isArray(data.products) ? data.products : []
-
-        const updateProducts = (next: typeof products) => {
-          onChange({ products: next })
-        }
-
-        const addProduct = () => {
-          updateProducts([...products, { name: "", features: [""], uniqueSellingPoint: "" }])
-        }
+        const updateProducts = (next: typeof products) => onChange({ products: next })
+        const addProduct = () => updateProducts([...products, { name: "", features: [""], uniqueSellingPoint: "" }])
         const removeProduct = (idx: number) => {
-          const next = [...products]
-          next.splice(idx, 1)
-          updateProducts(next)
+          const next = [...products]; next.splice(idx, 1); updateProducts(next)
         }
         const updateProductField = (idx: number, key: "name" | "uniqueSellingPoint", value: string) => {
-          const next = [...products]
-          next[idx] = { ...next[idx], [key]: value }
-          updateProducts(next)
+          const next = [...products]; next[idx] = { ...next[idx], [key]: value }; updateProducts(next)
         }
         const updateFeature = (pIdx: number, fIdx: number, value: string) => {
-          const next = [...products]
-          next[pIdx].features[fIdx] = value
-          updateProducts(next)
+          const next = [...products]; next[pIdx].features[fIdx] = value; updateProducts(next)
         }
         const addFeature = (pIdx: number) => {
-          const next = [...products]
-          next[pIdx].features = [...(next[pIdx].features || []), ""]
-          updateProducts(next)
+          const next = [...products]; next[pIdx].features = [...(next[pIdx].features || []), ""]; updateProducts(next)
         }
         const removeFeature = (pIdx: number, fIdx: number) => {
-          const next = [...products]
-          next[pIdx].features.splice(fIdx, 1)
-          if (next[pIdx].features.length === 0) next[pIdx].features = [""]
-          updateProducts(next)
+          const next = [...products]; next[pIdx].features.splice(fIdx, 1); if ((next[pIdx].features.length) === 0) next[pIdx].features = [""]; updateProducts(next)
         }
 
         return (

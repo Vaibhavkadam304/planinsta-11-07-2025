@@ -1,4 +1,5 @@
 // app/utils/exportBusinessPlanDocx.ts
+
 import {
   Table,
   TableRow,
@@ -78,86 +79,6 @@ const makeSafe = (obj: any) => {
   return wrap(obj || {});
 };
 
-// ──────────────────────────────────────────────────────────────
-// Markdown helpers (bold + hyphen bullets; strip emojis)
-// ──────────────────────────────────────────────────────────────
-function stripEmojis(s: string) {
-  try {
-    return (s || "").replace(/[\p{Extended_Pictographic}]/gu, "");
-  } catch {
-    return s || "";
-  }
-}
-
-// Convert inline **bold** segments to TextRun[] (very small markdown subset)
-function runsFromInlineMarkdown(text: string): TextRun[] {
-  const t = stripEmojis(text ?? "");
-  const parts = t.split(/\*\*([^*]+)\*\*/g); // split on **bold**
-  const runs: TextRun[] = [];
-  parts.forEach((part, idx) => {
-    if (!part) return;
-    if (idx % 2 === 1) {
-      runs.push(new TextRun({ text: part, bold: true }));
-    } else {
-      runs.push(new TextRun({ text: part }));
-    }
-  });
-  return runs.length ? runs : [new TextRun({ text: t })];
-}
-
-// Render a block of markdown-ish text into Paragraph[]
-// Supports:
-// - blank line = spacer
-// - line "**Heading**" = bold line (BodyText style)
-// - line "- item" = bullet
-// - everything else = normal paragraph
-function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
-  const style = opts?.bodyStyle ?? "BodyText";
-  const lines = (stripEmojis(text ?? "") || "").replace(/\r\n/g, "\n").split("\n");
-  const out: Paragraph[] = [];
-
-  for (const raw of lines) {
-    const line = raw.trim();
-    if (!line) {
-      out.push(new Paragraph({ text: "", style }));
-      continue;
-    }
-
-    // Bold subhead if the whole line is **...**
-    const mBoldLine = line.match(/^\*\*(.+)\*\*$/);
-    if (mBoldLine) {
-      out.push(
-        new Paragraph({
-          children: [new TextRun({ text: mBoldLine[1].trim(), bold: true })],
-          style,
-        })
-      );
-      continue;
-    }
-
-    // Bullet line "- ..."
-    if (/^- /.test(line)) {
-      const t = line.replace(/^- +/, "");
-      out.push(
-        new Paragraph({
-          children: runsFromInlineMarkdown(t), // ← FIX: keep the runs directly
-          style: "BulletText",                 // use a real bullet style (defined below)
-          bullet: {
-            level: 0,
-            reference: "SmallCircle"
-          },
-        })
-      );
-      continue;
-    }
-
-    // Default paragraph with inline bold
-    out.push(new Paragraph({ children: runsFromInlineMarkdown(line), style }));
-  }
-
-  return out;
-}
-
 export async function exportBusinessPlanDocx(
   planData: Partial<BusinessPlanData> = {},
   generatedPlan: GeneratedPlan | string | Record<string, any>
@@ -213,7 +134,9 @@ export async function exportBusinessPlanDocx(
     new Paragraph({ text: "", spacing: { after: 200 } });
 
   const doc = new Document({
+    // Uncomment if you prefer Word to auto-update TOC on open (will show a security prompt):
     // features: { updateFields: true },
+
     styles: {
       paragraphStyles: [
         {
@@ -252,7 +175,7 @@ export async function exportBusinessPlanDocx(
           next: "Normal",
           quickFormat: true,
           run: { size: 32, bold: true, font: "Calibri", color: "000000" },
-          paragraph: { spacing: { before: 300, after: 240 } },
+          paragraph: { spacing: { before: 300, after: 240 } }, // <- extra space after H1
         },
         {
           id: "Heading2",
@@ -273,19 +196,6 @@ export async function exportBusinessPlanDocx(
           run: { size: 22, font: "Calibri", color: "000000" },
           paragraph: { spacing: { line: 276, after: 100 }, alignment: AlignmentType.JUSTIFIED },
         },
-
-        // NEW: bullet paragraph style (used by md() for "- ..." lines)
-        {
-          id: "BulletText",
-          name: "Bullet Text",
-          basedOn: "BodyText",
-          next: "BodyText",
-          quickFormat: true,
-          paragraph: {
-            indent: { left: 720 }, // ~0.5 inch
-            spacing: { after: 60 },
-          },
-        },
       ],
       // @ts-ignore
       tableStyles: [
@@ -301,26 +211,6 @@ export async function exportBusinessPlanDocx(
             insideVertical: { style: BorderStyle.SINGLE, size: 1, color: "EEEEEE" },
           },
           cellMargin: { top: 100, bottom: 100, left: 100, right: 100 },
-        },
-      ],
-    },
-
-    numbering: {
-      config: [
-        {
-          reference: "SmallCircle",              // ← use this name below
-          levels: [
-            {
-              level: 0,
-              format: "bullet",
-              text: "◦",                         // small circle glyph
-              alignment: AlignmentType.LEFT,
-              style: {
-                run: { size: 18 },              // smaller than BodyText (22)
-                paragraph: { indent: { left: 720 } },
-              },
-            },
-          ],
         },
       ],
     },
@@ -347,14 +237,11 @@ export async function exportBusinessPlanDocx(
           H1("Executive Summary"),
           Spacer(),
           H2("Business Overview"),
-          ...md(executiveSummary.businessOverview, { bodyStyle: "BodyText" }),
-
+          new Paragraph({ text: executiveSummary.businessOverview, style: "BodyText" }),
           H2("Funding Requirements & Usage of Funds"),
-          ...md(executiveSummary.fundingRequirementsUsageOfFunds, { bodyStyle: "BodyText" }),
-
+          new Paragraph({ text: executiveSummary.fundingRequirementsUsageOfFunds, style: "BodyText" }),
           H2("Past Milestones"),
           new Paragraph({ text: executiveSummary.pastMilestones, style: "BodyText" }),
-
           H2("Problem Statement & Solution"),
           new Paragraph({ text: executiveSummary.problemStatementSolution, style: "BodyText" }),
 
@@ -388,16 +275,14 @@ export async function exportBusinessPlanDocx(
             const content = (products as any)[`product${i}`] as string | undefined;
             return [
               H2(`Product ${i}${name ? `: ${name}` : ""}`),
-              ...(content ? md(content, { bodyStyle: "BodyText" }) : [new Paragraph({ text: "", style: "BodyText" })]),
+              new Paragraph({ text: content || "", style: "BodyText" }),
             ];
           }).flat(),
 
           H2("Unique Selling Propositions (USPs)"),
-          ...md(products.uniqueSellingPropositions, { bodyStyle: "BodyText" }),
-
+          new Paragraph({ text: products.uniqueSellingPropositions, style: "BodyText" }),
           H2("Development Roadmap"),
-          ...md(products.developmentRoadmap, { bodyStyle: "BodyText" }),
-
+          new Paragraph({ text: products.developmentRoadmap, style: "BodyText" }),
           H2("Intellectual Property & Regulatory Status"),
           new Paragraph({ text: products.intellectualPropertyRegulatoryStatus, style: "BodyText" }),
 
@@ -657,10 +542,8 @@ export async function exportBusinessPlanDocx(
 
           H2("Key Financial Metrics & Ratios"),
           new Paragraph({ text: financialPlan.keyFinancialMetricsRatios, style: "BodyText" }),
-
           H2("Use of Funds & Runway"),
-          ...md(financialPlan.useOfFundsRunway, { bodyStyle: "BodyText" }),
-
+          new Paragraph({ text: financialPlan.useOfFundsRunway, style: "BodyText" }),
           H2("Key Sensitivity & Risk Scenarios"),
           new Paragraph({ text: financialPlan.keySensitivityRiskScenarios, style: "BodyText" }),
           H2("Summary & Outlook"),

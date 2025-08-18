@@ -2,16 +2,15 @@
 
 import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
-import OpenAI from "openai"
+import { Configuration, OpenAIApi } from "openai"
 import { z } from "zod"
 import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient"
+import http from "http"
+import https from "https"
 
 // ──────────────────────────────────────────────────────────────
 // Helpers (balanced expansion/compression)
 // ──────────────────────────────────────────────────────────────
-
-type OpenAIClient = InstanceType<typeof OpenAI>;
-
 function stripFences(text: string): string {
   let t = (text ?? "").trim()
   if (t.startsWith("```")) t = t.replace(/^```(?:json)?\r?\n/, "")
@@ -40,15 +39,6 @@ function takeFirstWords(s: string, maxWords: number) {
   return words.slice(0, maxWords).join(" ").replace(/[.,;:!?-]*$/, "") + "…"
 }
 
-// Simple emoji remover (safety for any user-provided strings)
-function stripEmojis(s: string) {
-  try {
-    return (s || "").replace(/[\p{Extended_Pictographic}]/gu, "")
-  } catch {
-    return s || ""
-  }
-}
-
 // ── Amount helpers ──
 function parseAmount(s?: string): number {
   if (!s) return 0
@@ -57,6 +47,7 @@ function parseAmount(s?: string): number {
   return Number.isFinite(n) ? n : 0
 }
 function toAmountString(n: number): string {
+  // Keep digits/commas only (no symbols)
   return Math.round(n).toLocaleString("en-US")
 }
 
@@ -134,30 +125,10 @@ const BALANCE_TARGETS: Record<string, { min: number; max: number }> = {
   "appendices.managementTeamsResources": { min: 40, max: 60 },
   "appendices.projectedFinancesTables": { min: 40, max: 60 },
 }
+
+// Shorter product entries (compact bullets)
 for (let i = 1; i <= 10; i++) {
   BALANCE_TARGETS[`products.product${i}`] = { min: 35, max: 55 }
-}
-
-// ── Structured markdown fields (no emojis) ──
-const STRUCTURED_MARKDOWN_FIELDS = new Set<string>([
-  "executiveSummary.businessOverview",
-  "executiveSummary.fundingRequirementsUsageOfFunds",
-])
-
-function structuredMarkdownGuidance(path: string) {
-  if (path === "executiveSummary.businessOverview") {
-    return `Formatting:
-- Start with a 1–2 sentence paragraph about the company.
-- Then add a bold subhead **Key Highlights** followed by hyphen bullets (no emojis).
-- Then add a bold subhead **Our Mission** followed by hyphen bullets (no emojis).`
-  }
-  if (path === "executiveSummary.fundingRequirementsUsageOfFunds") {
-    return `Formatting:
-- Start with one sentence stating the total funding required.
-- Then add a bold subhead **Allocation of Funds** with hyphen bullets "<Item> — <Amount>" that sum EXACTLY to fundingNeeded (digits/commas only).
-- Then add a bold subhead **Objective** with 2–4 hyphen bullets (no emojis).`
-  }
-  return ""
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -170,14 +141,13 @@ async function withRetries<T>(fn: () => Promise<T>) {
     try {
       return await fn()
     } catch (err: any) {
-      const status = err?.status ?? err?.response?.status
+      const status = err?.response?.status
       const code = err?.code
-      const headers = err?.headers ?? err?.response?.headers
       const transient =
         status === 429 || (status && status >= 500) ||
         code === "ENOTFOUND" || code === "ECONNRESET" || code === "ETIMEDOUT"
       if (!transient || attempt >= maxRetries) throw err
-      const ra = Number(headers?.["retry-after"])
+      const ra = Number(err?.response?.headers?.["retry-after"])
       const base = 800 + attempt * 600
       const jitter = Math.random() * 250
       await new Promise(r => setTimeout(r, Number.isFinite(ra) ? ra * 1000 : base + jitter))
@@ -190,6 +160,7 @@ async function withRetries<T>(fn: () => Promise<T>) {
 // Expansion / Compression
 // ──────────────────────────────────────────────────────────────
 
+// Multi-pass expand with top-off and hard cap
 async function expandToRange({
   client,
   model,
@@ -198,32 +169,23 @@ async function expandToRange({
   max,
   formData,
   path,
-  allowMarkdown = false,
 }: {
-  client: OpenAIClient
+  client: OpenAIApi
   model: string
   original: string
   min: number
   max: number
   formData: any
   path: string
-  allowMarkdown?: boolean
 }) {
   let text = original.trim()
 
   for (let i = 0; i < 3 && wc(text) < min; i++) {
-    const formattingRule = allowMarkdown
-      ? `Use MARKDOWN only where appropriate:
-- Keep any existing bold subheads and hyphen bullets.
-- No emojis anywhere.
-${structuredMarkdownGuidance(path)}`
-      : `Return PLAIN TEXT (no headings/markdown).`
-
     const sys = `You expand business-plan prose.
 Rules:
+- Return PLAIN TEXT (no headings/markdown).
 - Target ${min}–${max} words.
-- Keep meaning; add specifics/examples; avoid fluff.
-- ${formattingRule}`
+- Keep meaning; add specifics/examples; avoid fluff.`
     const usr = `COMPANY CONTEXT:
 ${JSON.stringify({
   businessName: formData.businessName,
@@ -237,9 +199,9 @@ ${JSON.stringify({
 SECTION (${path}) — CURRENT TEXT:
 ${text}
 
-TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed only per rules).`
+TASK: Rewrite to ${min}–${max} words. Return only the text.`
     const res = await withRetries(() =>
-      client.chat.completions.create({
+      client.createChatCompletion({
         model,
         temperature: 0.3,
         max_tokens: 1100,
@@ -249,16 +211,14 @@ TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed o
         ],
       })
     )
-    text = stripFences(res.choices?.[0]?.message?.content ?? "").trim()
+    text = stripFences(res.data.choices?.[0]?.message?.content ?? "").trim()
   }
 
   if (wc(text) < min) {
-    const addSys = allowMarkdown
-      ? `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Keep existing markdown structure; no emojis.`
-      : `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Plain text only.`
+    const addSys = `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Plain text only.`
     const addUsr = `SECTION (${path}) — CURRENT TEXT:\n${text}\n\nAdditions (not a rewrite):`
     const add = await withRetries(() =>
-      client.chat.completions.create({
+      client.createChatCompletion({
         model,
         temperature: 0.4,
         max_tokens: 180,
@@ -268,13 +228,14 @@ TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed o
         ],
       })
     )
-    text = (text + " " + stripFences(add.choices?.[0]?.message?.content ?? "").trim()).trim()
+    text = (text + " " + stripFences(add.data.choices?.[0]?.message?.content ?? "").trim()).trim()
     if (wc(text) > max) text = takeFirstWords(text, max)
   }
 
   return text
 }
 
+// Multi-pass compress with hard cap fallback
 async function compressToMaxStrict({
   client,
   model,
@@ -283,28 +244,22 @@ async function compressToMaxStrict({
   formData,
   path,
   passes = 3,
-  allowMarkdown = false,
 }: {
-  client: OpenAIClient
+  client: OpenAIApi
   model: string
   original: string
   max: number
   formData: any
   path: string
   passes?: number
-  allowMarkdown?: boolean
 }) {
   let text = original.trim()
   for (let i = 0; i < passes && wc(text) > max; i++) {
-    const formattingRule = allowMarkdown
-      ? `Keep existing MARKDOWN structure (bold subheads, hyphen bullets). No emojis.`
-      : `Return PLAIN TEXT (no headings/markdown).`
-
     const sys = `You condense business-plan prose.
 Rules:
+- Return PLAIN TEXT only (no headings/markdown).
 - HARD LIMIT: ≤ ${max} words.
-- Preserve key facts and structure; keep it cohesive and specific.
-- ${formattingRule}`
+- Preserve key facts and structure; keep it cohesive and specific.`
     const usr = `COMPANY CONTEXT:
 ${JSON.stringify({
   businessName: formData.businessName,
@@ -318,7 +273,7 @@ ${text}
 
 TASK: Rewrite to ≤ ${max} words. Return only the rewritten text.`
     const res = await withRetries(() =>
-      client.chat.completions.create({
+      client.createChatCompletion({
         model,
         temperature: 0.2,
         max_tokens: 500,
@@ -328,7 +283,7 @@ TASK: Rewrite to ≤ ${max} words. Return only the rewritten text.`
         ],
       })
     )
-    text = stripFences(res.choices?.[0]?.message?.content ?? "").trim()
+    text = stripFences(res.data.choices?.[0]?.message?.content ?? "").trim()
   }
   if (wc(text) > max) text = takeFirstWords(text, max)
   return text
@@ -342,7 +297,7 @@ async function balancePlanSections({
   formData,
   enable = true,
 }: {
-  client: OpenAIClient
+  client: OpenAIApi
   model: string
   plan: any
   formData: any
@@ -355,16 +310,15 @@ async function balancePlanSections({
     const cur = String(getByPath(plan, path) ?? "")
     if (!cur.trim()) continue
     const words = wc(cur)
-    const allowMarkdown = STRUCTURED_MARKDOWN_FIELDS.has(path)
 
     try {
       if (words < min) {
         if (LOG) console.log(`[balance] EXPAND ${path}: ${words} → target ${min}-${max}`)
-        const expanded = await expandToRange({ client, model, original: cur, min, max, formData, path, allowMarkdown })
+        const expanded = await expandToRange({ client, model, original: cur, min, max, formData, path })
         if (expanded && wc(expanded) >= min) setByPath(plan, path, expanded)
       } else if (words > max) {
         if (LOG) console.log(`[balance] COMPRESS ${path}: ${words} → max ${max}`)
-        const compressed = await compressToMaxStrict({ client, model, original: cur, max, formData, path, allowMarkdown })
+        const compressed = await compressToMaxStrict({ client, model, original: cur, max, formData, path })
         if (compressed) setByPath(plan, path, compressed)
       } else {
         if (LOG) console.log(`[balance] OK ${path}: ${words} within ${min}-${max}`)
@@ -387,7 +341,7 @@ function normalizeFinancials(plan: any, formData: any) {
   const rawFub = Array.isArray(formData?.fundingUseBreakdown) ? formData.fundingUseBreakdown : []
   const breakdown: Array<{ item: string; amountN: number }> = []
   for (const r of rawFub) {
-    const item = stripEmojis((r?.item ?? "").trim())
+    const item = (r?.item ?? "").trim()
     const amtN = parseAmount(r?.amount)
     if (item && amtN > 0) breakdown.push({ item, amountN: amtN })
   }
@@ -395,7 +349,7 @@ function normalizeFinancials(plan: any, formData: any) {
   // If no user breakdown provided, try to infer from investmentUtilization
   if (!breakdown.length && Array.isArray(formData?.investmentUtilization)) {
     for (const r of formData.investmentUtilization) {
-      const item = stripEmojis((r?.item ?? "").trim())
+      const item = (r?.item ?? "").trim()
       const amtN = parseAmount(r?.amount)
       if (item && amtN > 0) breakdown.push({ item, amountN: amtN })
     }
@@ -422,6 +376,23 @@ function normalizeFinancials(plan: any, formData: any) {
     }
   }
 
+  // Rewrite two narrative fields with a consistent list
+  const list = breakdown
+    .map(b => `• ${b.item}: ${toAmountString(b.amountN)}`)
+    .join("\n")
+
+  if (fundingNeededN > 0 && list) {
+    const prefixExec = `We are seeking ${toAmountString(fundingNeededN)} in funding. The amount will be used as follows:\n`
+    const prefixFin = `Planned use of funds totals ${toAmountString(fundingNeededN)} and is allocated to:\n`
+
+    if (plan.executiveSummary?.fundingRequirementsUsageOfFunds) {
+      plan.executiveSummary.fundingRequirementsUsageOfFunds = `${prefixExec}${list}`
+    }
+    if (plan.financialPlan?.useOfFundsRunway) {
+      plan.financialPlan.useOfFundsRunway = `${prefixFin}${list}`
+    }
+  }
+
   // OpEx alignment with monthlyExpenses (if provided)
   const monthlyExpN = parseAmount(formData?.monthlyExpenses)
   if (monthlyExpN > 0 && Array.isArray(plan.financialPlan?.opEx)) {
@@ -438,82 +409,6 @@ function normalizeFinancials(plan: any, formData: any) {
   if (initCashN > 0 && Array.isArray(plan.financialPlan?.cashFlowRunwayAnalysis) && plan.financialPlan.cashFlowRunwayAnalysis[0]) {
     plan.financialPlan.cashFlowRunwayAnalysis[0].beginningCash = toAmountString(initCashN)
   }
-
-  // ── Rewrite funding sections with consistent, emoji-free markdown ──
-  if (fundingNeededN > 0 && breakdown.length) {
-    const mdList = breakdown
-      .map(b => `- ${stripEmojis(b.item)} — ${toAmountString(b.amountN)}`)
-      .join("\n")
-
-    const company = stripEmojis((formData?.businessName || "the company").trim())
-
-    // Optional objectives from formData; else defaults
-    const objectives: string[] = Array.isArray((formData as any)?.fundingObjectives)
-      ? ((formData as any).fundingObjectives as string[]).map(x => stripEmojis(String(x || "").trim())).filter(Boolean)
-      : []
-
-    if (!objectives.length) {
-      objectives.push(
-        "Strengthen product-market fit",
-        "Expand the user base through effective outreach",
-        "Establish a foundation for long-term sustainable growth",
-      )
-    }
-
-    const execFunding = [
-      `We are seeking ${toAmountString(fundingNeededN)} in funding to accelerate the growth and development of ${company}.`,
-      ``,
-      `**Allocation of Funds**`,
-      mdList,
-      ``,
-      `**Objective**`,
-      ...objectives.map(o => `- ${o}`),
-    ].join("\n")
-
-    plan.executiveSummary.fundingRequirementsUsageOfFunds = execFunding
-
-    // Financial Plan version (kept simple list)
-    plan.financialPlan.useOfFundsRunway = [
-      `Planned use of funds totals ${toAmountString(fundingNeededN)} and is allocated to:`,
-      mdList,
-    ].join("\n")
-  }
-}
-
-// Optional: enforce structured Business Overview (intro + highlights + mission)
-function structureExecBusinessOverview(plan: any, formData: any) {
-  const original = String(plan?.executiveSummary?.businessOverview || "").trim()
-  const intro =
-    stripEmojis((formData as any)?.execIntro || "") ||
-    (original ? original.split(/\.\s/).slice(0, 1).join(". ") + "." : "")
-
-  // Highlights: prefer user-provided execHighlights; else use achievements; else none
-  const highlights: string[] = Array.isArray((formData as any)?.execHighlights)
-    ? (formData as any).execHighlights.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-    : Array.isArray((formData as any)?.achievements)
-      ? (formData as any).achievements.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-      : []
-
-  // Mission bullets (user-provided or defaults)
-  const missionBullets: string[] = Array.isArray((formData as any)?.missionBullets)
-    ? (formData as any).missionBullets.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-    : [
-        "Save valuable time and resources",
-        "Boost productivity and growth",
-        "Focus on what matters most — running their business, not their tools",
-      ]
-
-  const parts = [
-    intro,
-    "",
-    "**Key Highlights**",
-    ...highlights.map(h => `- ${h}`),
-    "",
-    "**Our Mission**",
-    ...missionBullets.map(m => `- ${m}`),
-  ]
-
-  plan.executiveSummary.businessOverview = parts.join("\n").trim()
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -527,65 +422,48 @@ function includeIfMissing(haystack: string, needle: string) {
 }
 
 function enforceInclusions(plan: any, formData: any) {
-  // === existing code you already have (fundingReceived, investmentUtilization, notes, upcomingMilestone) ===
-
-  // ── Location (country/region) → Company History; Operation location → Ops Overview
-  const loc = (formData?.location || "").trim()
-  if (loc) {
-    const sentence = `Headquartered in ${loc}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
-  const opLoc = (formData as any)?.operationLocation?.trim?.()
-  if (opLoc) {
-    const sentence = `Operations are based in ${opLoc}.`
-    plan.operationsPlan.overview =
-      includeIfMissing(plan.operationsPlan.overview, sentence)
+  // fundingReceived → ensure sentence in Financial Plan → Key Assumptions
+  const fr = (formData?.fundingReceived || "").trim()
+  if (fr) {
+    const sentence = `Funding received to date: ${fr}.`
+    plan.financialPlan.keyAssumptions =
+      includeIfMissing(plan.financialPlan.keyAssumptions, sentence)
   }
 
-  // ── Business stage → Company Objectives
-  const stage = (formData?.businessStage || "").trim()
-  if (stage) {
-    const sentence = `Current stage: ${stage}.`
+  // investmentUtilization → ensure sentence in Financial Plan → Overview
+  const iu = Array.isArray(formData?.investmentUtilization) ? formData.investmentUtilization : []
+  if (iu.length) {
+    const parts = iu
+      .map((r: any) => {
+        const item = String(r?.item || "").trim()
+        const n = parseAmount(r?.amount)
+        return item ? `${item}: ${toAmountString(n)}` : ""
+      })
+      .filter(Boolean)
+    if (parts.length) {
+      const sentence = `Investment utilization: ${parts.join("; ")}.`
+      plan.financialPlan.overview = includeIfMissing(plan.financialPlan.overview, sentence)
+    }
+  }
+
+  // notes → append to Appendices → Management Teams’ Resources
+  const note = (formData?.notes || "").trim()
+  if (note) {
+    const sentence = `Note: ${note}.`
+    plan.appendices.managementTeamsResources =
+      includeIfMissing(plan.appendices.managementTeamsResources, sentence)
+  }
+
+  // upcomingMilestone → append to Company Objectives (and mirror in Ops KPIs)
+  const um = (formData?.upcomingMilestone || "").trim()
+  if (um) {
+    const sentence = `Upcoming milestone: ${um}.`
     plan.companyOverview.companyObjectives =
       includeIfMissing(plan.companyOverview.companyObjectives, sentence)
-  }
-
-  // ── Founder role → Founding Team
-  const founderRole = (formData?.founderRole || "").trim()
-  if (founderRole) {
-    const sentence = `Founder's role: ${founderRole}.`
-    plan.companyOverview.foundingTeam =
-      includeIfMissing(plan.companyOverview.foundingTeam, sentence)
-  }
-
-  // ── Description → Company History (kept as a plain sentence)
-  const description = (formData?.description || "").trim()
-  if (description) {
-    const sentence = /[.?!]$/.test(description) ? description : `${description}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
-
-  // ── Root-level USPs / key features → Products → Unique Selling Propositions
-  const uspRoot = (formData as any)?.uniqueSellingPoint?.trim?.() || ""
-  const keyFeatures = Array.isArray((formData as any)?.keyFeatures)
-    ? (formData as any).keyFeatures.map((x: string) => String(x || "").trim()).filter(Boolean)
-    : []
-
-  if (uspRoot || keyFeatures.length) {
-    let uspText = String(plan.products.uniqueSellingPropositions || "")
-    if (uspRoot) {
-      uspText = includeIfMissing(uspText, `Unique selling point: ${uspRoot}.`)
-    }
-    if (keyFeatures.length) {
-      const featuresSentence = `Key features: ${keyFeatures.join(", ")}.`
-      uspText = includeIfMissing(uspText, featuresSentence)
-    }
-    plan.products.uniqueSellingPropositions = uspText
+    plan.operationsPlan.keyPerformanceMetricsGoals =
+      includeIfMissing(plan.operationsPlan.keyPerformanceMetricsGoals, sentence)
   }
 }
-
 
 // ──────────────────────────────────────────────────────────────
 // Schema
@@ -739,7 +617,7 @@ export async function generateBusinessPlan(
 • Weave these achievements into the first paragraph (no extra bullets): ${achievements.join(", ")}`
       : ""
 
-    // Finance facts → to be woven
+    // Finance facts → to be woven (now includes monthlyExpenses & fundingUseBreakdown + hard rules)
     const financeFacts = (() => {
       const lines: string[] = []
       const fd: any = formData as any
@@ -805,7 +683,7 @@ Append this note verbatim as the LAST sentence of **Appendices → Management Te
 "${(formData as any).notes}".`
       : ""
 
-    // System prompt
+    // System prompt (generator uses tighter 110–170 words per field; balancer will expand to your mins)
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
 TASK: Generate a JSON object that matches exactly this shape (no extra keys or markdown):
@@ -910,11 +788,7 @@ RULES:
      • Core features • Integrations • Target users/industries • Primary use case OR quantified benefit
 4) Currency/amount fields must be strings with digits/commas only (no symbols).
 5) CRITICAL: The following MUST be non-empty:
-   appendices.glossary, appendices.managementTeamsResources, appendices.projectedFinancesTables.
-6) No emojis anywhere.
-7) Formatting exceptions (markdown allowed ONLY for these two):
-   - executiveSummary.businessOverview: paragraph, then **Key Highlights** (hyphen bullets), then **Our Mission** (hyphen bullets).
-   - executiveSummary.fundingRequirementsUsageOfFunds: one-line ask, then **Allocation of Funds** (hyphen bullets "<Item> — <Amount>"), then **Objective** (hyphen bullets).`
+   appendices.glossary, appendices.managementTeamsResources, appendices.projectedFinancesTables.`
 
     const userPrompt = `Generate a comprehensive business plan using this form input.
 
@@ -922,7 +796,7 @@ Make sure you populate the Executive Summary’s "fundingRequirementsUsageOfFund
 ${marketingUserHints}
 ${achievementsHint}
 ${financeFacts}
-${mileageHintPlaceholder() /* keeps TypeScript happy if removed later */}${milestoneHint}
+${milestoneHint}
 ${notesHint}
 
 FORM DATA:
@@ -930,23 +804,31 @@ ${JSON.stringify(formData, null, 2)}
 
 Be sure to include the full 'products' section with overview, ten product entries, USPs, development roadmap, and IP/regulatory status.`
 
-    // OpenAI client (v4 SDK)
+    // OpenAI client (keep-alive + timeout)
+    const httpAgent = new http.Agent({ keepAlive: true })
+    const httpsAgent = new https.Agent({ keepAlive: true })
     const MODEL = (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()
-    const HEAVY_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || MODEL
+    const HEAVY_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || MODEL // heavy model for balancing only
 
-    const client = new OpenAI({
+    const config = new Configuration({
       apiKey: process.env.OPENAI_API_KEY,
-      timeout: 120_000,
+      baseOptions: {
+        timeout: 120_000,
+        httpAgent,
+        httpsAgent,
+      },
     })
+    const client = new OpenAIApi(config)
 
     // ── create completion with retries ──
-    let completion: Awaited<ReturnType<typeof client.chat.completions.create>>
+    let completion
     const maxRetries = 5
     let attempt = 0
     while (true) {
       try {
-        completion = await client.chat.completions.create({
+        completion = await client.createChatCompletion({
           model: MODEL,
+          // @ts-expect-error: response_format not in v3 types, but API supports it
           response_format: { type: "json_object" },
           temperature: 0.2,
           max_tokens: 4500,
@@ -957,15 +839,14 @@ Be sure to include the full 'products' section with overview, ten product entrie
         })
         break
       } catch (err: any) {
-        const status = err?.status ?? err?.response?.status
+        const status = err?.response?.status
         const code = err?.code
-        const headers = err?.headers ?? err?.response?.headers ?? {}
         const transient =
           status === 429 || (status && status >= 500) ||
           code === "ENOTFOUND" || code === "ECONNRESET" || code === "ETIMEDOUT"
 
         if (transient && attempt < maxRetries) {
-          const ra = Number(headers["retry-after"])
+          const ra = Number(err?.response?.headers?.["retry-after"])
           const base = Math.pow(2, attempt) * 1000
           const jitter = Math.random() * base * 0.2
           const delayMs = Number.isFinite(ra) ? ra * 1000 : base + jitter
@@ -973,8 +854,8 @@ Be sure to include the full 'products' section with overview, ten product entrie
             status,
             code,
             retryAfter: ra,
-            remainReq: headers["x-ratelimit-remaining-requests"],
-            remainTok: headers["x-ratelimit-remaining-tokens"],
+            remainReq: err?.response?.headers?.["x-ratelimit-remaining-requests"],
+            remainTok: err?.response?.headers?.["x-ratelimit-remaining-tokens"],
           })
           await new Promise(r => setTimeout(r, delayMs))
           attempt++
@@ -985,7 +866,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
     }
 
     // Parse JSON
-    let raw = completion.choices?.[0]?.message?.content!
+    let raw = completion.data.choices?.[0]?.message?.content!
     if (!raw) throw new Error("OpenAI returned no content")
     raw = stripFences(raw)
     {
@@ -1018,7 +899,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
         : []
     }
 
-    // ✅ persist notes + upcomingMilestone from formData
+    // ✅ NEW: persist notes + upcomingMilestone from formData
     planObject.notes ||= (formData as any).notes ?? ""
     planObject.upcomingMilestone ||= (formData as any).upcomingMilestone ?? ""
 
@@ -1044,15 +925,12 @@ Be sure to include the full 'products' section with overview, ten product entrie
     // Normalize financials to enforce totals & alignment (before balancing)
     normalizeFinancials(planObject, formData)
 
-    // Enforce structured Business Overview (intro + highlights + mission)
-    structureExecBusinessOverview(planObject, formData)
-
     // Pick a working model for balancing
     const BALANCE = (process.env.BALANCE_SECTIONS ?? "1") === "1"
     let BALANCER_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()
     if (BALANCER_MODEL !== (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()) {
       try {
-        await client.chat.completions.create({
+        await client.createChatCompletion({
           model: BALANCER_MODEL,
           messages: [{ role: "user", content: "ping" }],
           max_tokens: 1,
@@ -1064,7 +942,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
       }
     }
 
-    // ⬇️ CALL the top-level balancer BEFORE enforceInclusions
+    // Balance short/long sections
     await balancePlanSections({
       client,
       model: BALANCER_MODEL,
@@ -1139,6 +1017,3 @@ Be sure to include the full 'products' section with overview, ten product entrie
     return { success: false, error: err?.message ?? "Unknown error" }
   }
 }
-
-// Helper to keep TS happy if we strip out the milestoneHint interpolation
-function mileageHintPlaceholder() { return "" }

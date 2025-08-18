@@ -1,3 +1,4 @@
+// lib/supabase/client.ts
 import { createClient } from "@supabase/supabase-js"
 
 const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!
@@ -11,6 +12,8 @@ export const getSupabase = () => {
       auth: {
         autoRefreshToken: true,
         persistSession: true,
+        detectSessionInUrl: true, // parse hash links if present
+        flowType: "pkce",         // REQUIRED for ?code=... recovery links
       },
     })
   }

@@ -43,6 +43,7 @@ function takeFirstWords(s: string, maxWords: number) {
 // Simple emoji remover (safety for any user-provided strings)
 function stripEmojis(s: string) {
   try {
+    // Remove extended pictographic code points (most emoji)
     return (s || "").replace(/[\p{Extended_Pictographic}]/gu, "")
   } catch {
     return s || ""
@@ -57,6 +58,7 @@ function parseAmount(s?: string): number {
   return Number.isFinite(n) ? n : 0
 }
 function toAmountString(n: number): string {
+  // Keep digits/commas only (no symbols)
   return Math.round(n).toLocaleString("en-US")
 }
 
@@ -134,6 +136,8 @@ const BALANCE_TARGETS: Record<string, { min: number; max: number }> = {
   "appendices.managementTeamsResources": { min: 40, max: 60 },
   "appendices.projectedFinancesTables": { min: 40, max: 60 },
 }
+
+// Shorter product entries (compact bullets)
 for (let i = 1; i <= 10; i++) {
   BALANCE_TARGETS[`products.product${i}`] = { min: 35, max: 55 }
 }
@@ -187,9 +191,10 @@ async function withRetries<T>(fn: () => Promise<T>) {
 }
 
 // ──────────────────────────────────────────────────────────────
-// Expansion / Compression
+// Expansion / Compression (markdown-preserving for selected fields)
 // ──────────────────────────────────────────────────────────────
 
+// Multi-pass expand with top-off and hard cap
 async function expandToRange({
   client,
   model,
@@ -200,7 +205,7 @@ async function expandToRange({
   path,
   allowMarkdown = false,
 }: {
-  client: OpenAIClient
+  client: OpenAI
   model: string
   original: string
   min: number
@@ -275,6 +280,7 @@ TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed o
   return text
 }
 
+// Multi-pass compress with hard cap fallback
 async function compressToMaxStrict({
   client,
   model,
@@ -285,7 +291,7 @@ async function compressToMaxStrict({
   passes = 3,
   allowMarkdown = false,
 }: {
-  client: OpenAIClient
+  client: OpenAI
   model: string
   original: string
   max: number
@@ -342,7 +348,7 @@ async function balancePlanSections({
   formData,
   enable = true,
 }: {
-  client: OpenAIClient
+  client: OpenAI
   model: string
   plan: any
   formData: any
@@ -527,65 +533,48 @@ function includeIfMissing(haystack: string, needle: string) {
 }
 
 function enforceInclusions(plan: any, formData: any) {
-  // === existing code you already have (fundingReceived, investmentUtilization, notes, upcomingMilestone) ===
-
-  // ── Location (country/region) → Company History; Operation location → Ops Overview
-  const loc = (formData?.location || "").trim()
-  if (loc) {
-    const sentence = `Headquartered in ${loc}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
-  const opLoc = (formData as any)?.operationLocation?.trim?.()
-  if (opLoc) {
-    const sentence = `Operations are based in ${opLoc}.`
-    plan.operationsPlan.overview =
-      includeIfMissing(plan.operationsPlan.overview, sentence)
+  // fundingReceived → ensure sentence in Financial Plan → Key Assumptions
+  const fr = (formData?.fundingReceived || "").trim()
+  if (fr) {
+    const sentence = `Funding received to date: ${fr}.`
+    plan.financialPlan.keyAssumptions =
+      includeIfMissing(plan.financialPlan.keyAssumptions, sentence)
   }
 
-  // ── Business stage → Company Objectives
-  const stage = (formData?.businessStage || "").trim()
-  if (stage) {
-    const sentence = `Current stage: ${stage}.`
+  // investmentUtilization → ensure sentence in Financial Plan → Overview
+  const iu = Array.isArray(formData?.investmentUtilization) ? formData.investmentUtilization : []
+  if (iu.length) {
+    const parts = iu
+      .map((r: any) => {
+        const item = String(r?.item || "").trim()
+        const n = parseAmount(r?.amount)
+        return item ? `${item}: ${toAmountString(n)}` : ""
+      })
+      .filter(Boolean)
+    if (parts.length) {
+      const sentence = `Investment utilization: ${parts.join("; ")}.`
+      plan.financialPlan.overview = includeIfMissing(plan.financialPlan.overview, sentence)
+    }
+  }
+
+  // notes → append to Appendices → Management Teams’ Resources
+  const note = (formData?.notes || "").trim()
+  if (note) {
+    const sentence = `Note: ${note}.`
+    plan.appendices.managementTeamsResources =
+      includeIfMissing(plan.appendices.managementTeamsResources, sentence)
+  }
+
+  // upcomingMilestone → append to Company Objectives (and mirror in Ops KPIs)
+  const um = (formData?.upcomingMilestone || "").trim()
+  if (um) {
+    const sentence = `Upcoming milestone: ${um}.`
     plan.companyOverview.companyObjectives =
       includeIfMissing(plan.companyOverview.companyObjectives, sentence)
-  }
-
-  // ── Founder role → Founding Team
-  const founderRole = (formData?.founderRole || "").trim()
-  if (founderRole) {
-    const sentence = `Founder's role: ${founderRole}.`
-    plan.companyOverview.foundingTeam =
-      includeIfMissing(plan.companyOverview.foundingTeam, sentence)
-  }
-
-  // ── Description → Company History (kept as a plain sentence)
-  const description = (formData?.description || "").trim()
-  if (description) {
-    const sentence = /[.?!]$/.test(description) ? description : `${description}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
-
-  // ── Root-level USPs / key features → Products → Unique Selling Propositions
-  const uspRoot = (formData as any)?.uniqueSellingPoint?.trim?.() || ""
-  const keyFeatures = Array.isArray((formData as any)?.keyFeatures)
-    ? (formData as any).keyFeatures.map((x: string) => String(x || "").trim()).filter(Boolean)
-    : []
-
-  if (uspRoot || keyFeatures.length) {
-    let uspText = String(plan.products.uniqueSellingPropositions || "")
-    if (uspRoot) {
-      uspText = includeIfMissing(uspText, `Unique selling point: ${uspRoot}.`)
-    }
-    if (keyFeatures.length) {
-      const featuresSentence = `Key features: ${keyFeatures.join(", ")}.`
-      uspText = includeIfMissing(uspText, featuresSentence)
-    }
-    plan.products.uniqueSellingPropositions = uspText
+    plan.operationsPlan.keyPerformanceMetricsGoals =
+      includeIfMissing(plan.operationsPlan.keyPerformanceMetricsGoals, sentence)
   }
 }
-
 
 // ──────────────────────────────────────────────────────────────
 // Schema
@@ -739,7 +728,7 @@ export async function generateBusinessPlan(
 • Weave these achievements into the first paragraph (no extra bullets): ${achievements.join(", ")}`
       : ""
 
-    // Finance facts → to be woven
+    // Finance facts → to be woven (now includes monthlyExpenses & fundingUseBreakdown + hard rules)
     const financeFacts = (() => {
       const lines: string[] = []
       const fd: any = formData as any
@@ -805,7 +794,7 @@ Append this note verbatim as the LAST sentence of **Appendices → Management Te
 "${(formData as any).notes}".`
       : ""
 
-    // System prompt
+    // System prompt (generator uses tighter 110–170 words per field; balancer will expand to your mins)
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
 TASK: Generate a JSON object that matches exactly this shape (no extra keys or markdown):
@@ -1044,7 +1033,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
     // Normalize financials to enforce totals & alignment (before balancing)
     normalizeFinancials(planObject, formData)
 
-    // Enforce structured Business Overview (intro + highlights + mission)
+    // Enforce structured Business Overview (intro + highlights + mission), emoji-free
     structureExecBusinessOverview(planObject, formData)
 
     // Pick a working model for balancing
@@ -1064,14 +1053,57 @@ Be sure to include the full 'products' section with overview, ten product entrie
       }
     }
 
-    // ⬇️ CALL the top-level balancer BEFORE enforceInclusions
-    await balancePlanSections({
+    // Balance short/long sections (preserves markdown in the two configured fields)
+    async function balancePlanSections({
       client,
-      model: BALANCER_MODEL,
-      plan: planObject,
+      model,
+      plan,
       formData,
-      enable: BALANCE,
-    })
+      enable = true,
+      maxMutations = Number(process.env.BALANCE_MAX_MUTATIONS ?? 12),   // ⬅️ new
+    }: {
+      client: OpenAI
+      model: string
+      plan: any
+      formData: any
+      enable?: boolean
+      maxMutations?: number
+    }) {
+      if (!enable) return
+      const LOG = (process.env.BALANCE_LOG ?? "0") === "1"
+      let changes = 0                                                   // ⬅️ new
+
+      for (const [path, { min, max }] of Object.entries(BALANCE_TARGETS)) {
+        if (changes >= maxMutations) break                              // ⬅️ new
+
+        const cur = String(getByPath(plan, path) ?? "")
+        if (!cur.trim()) continue
+        const words = wc(cur)
+        const allowMarkdown = STRUCTURED_MARKDOWN_FIELDS.has(path)
+
+        try {
+          if (words < min) {
+            if (LOG) console.log(`[balance] EXPAND ${path}: ${words} → target ${min}-${max}`)
+            const expanded = await expandToRange({ client, model, original: cur, min, max, formData, path, allowMarkdown })
+            if (expanded && wc(expanded) >= min && expanded !== cur) {
+              setByPath(plan, path, expanded)
+              changes++                                                 // ⬅️ new
+            }
+          } else if (words > max) {
+            if (LOG) console.log(`[balance] COMPRESS ${path}: ${words} → max ${max}`)
+            const compressed = await compressToMaxStrict({ client, model, original: cur, max, formData, path, allowMarkdown })
+            if (compressed && compressed !== cur) {
+              setByPath(plan, path, compressed)
+              changes++                                                 // ⬅️ new
+            }
+          } else {
+            if (LOG) console.log(`[balance] OK ${path}: ${words} within ${min}-${max}`)
+          }
+        } catch (e) {
+          if (LOG) console.warn(`balancePlanSections(${path}) skipped:`, e)
+        }
+      }
+    }
 
     // ✅ Guarantee required insertions AFTER balancing so they won’t get removed
     enforceInclusions(planObject, formData)
