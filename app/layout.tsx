@@ -3,7 +3,8 @@ import React from "react"
 import type { Metadata } from "next"
 import "./globals.css"
 import { ClientProviders } from "@/components/ClientProviders"
-import { Toaster } from "@/components/ui/toaster" // ✅ Add this
+import { Toaster } from "@/components/ui/toaster"
+import { NetworkStatusToaster } from "@/components/network-status-toaster" // ✅ NEW
 
 export const metadata: Metadata = {
   title: "PlanInsta Dashboard - AI Business Plan Builder",
@@ -19,9 +20,11 @@ export default function RootLayout({
   return (
     <html lang="en">
       <body>
-        {/* ✅ Wrap toaster inside provider to enable toast globally */}
         <ClientProviders>
+          {/* ✅ One-time network status toasts (offline/online) */}
+          <NetworkStatusToaster />
           {children}
+          {/* ✅ Global toast portal */}
           <Toaster />
         </ClientProviders>
       </body>

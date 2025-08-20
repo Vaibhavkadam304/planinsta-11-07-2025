@@ -207,7 +207,7 @@ export function GenerationScreen({ businessName }: GenerationScreenProps) {
           {/* Footer Message */}
           <div className="text-center">
             <p className="text-gray-600 text-sm">
-              Generating your plan may take a moment—hang tight while we finish up.
+              Generating your plan may take a moment—hang tight while we finish up. You can also refine and save updates anytime by asking AI.
             </p>
           </div>
         </CardContent>

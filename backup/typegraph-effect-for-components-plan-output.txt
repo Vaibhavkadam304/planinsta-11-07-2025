@@ -5,6 +5,7 @@ import ReactMarkdown from "react-markdown"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
+import { TypewriterParagraph } from "@/components/ui/typewriter"
 import {
   Download,
   Edit3,
@@ -22,9 +23,10 @@ import Link from "next/link"
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
 
 /* -------------------------------------------------------------------------- */
-/*                                       Helpers                              */
+/*                               Helpers (NEW)                                */
 /* -------------------------------------------------------------------------- */
 
+// Pretty label for legal structure
 const LEGAL_LABELS: Record<string, string> = {
   "sole proprietorship": "Sole Proprietorship",
   "sole-proprietorship": "Sole Proprietorship",
@@ -39,37 +41,59 @@ const LEGAL_LABELS: Record<string, string> = {
 const labelize = (v?: string) =>
   (v ? LEGAL_LABELS[v.trim().toLowerCase()] : "") || (v || "Not specified")
 
+const pct = (n?: number) =>
+  typeof n === "number" && Number.isFinite(n) ? `${n}%` : undefined
+
+// INR grouping helper (keeps original if not plain digits/commas)
+const formatINR = (v?: string) => {
+  const s = String(v ?? "").trim()
+  const numeric = Number(s.replace(/[^\d.-]/g, ""))
+  if (Number.isFinite(numeric)) return numeric.toLocaleString("en-IN")
+  return s
+}
+
+// Generic formatter; default Indian grouping. Switch to "en-US" if you prefer.
 const formatAmount = (v?: string, locale: string = "en-IN") => {
   const s = String(v ?? "").trim()
   const n = Number(s.replace(/[^\d.-]/g, ""))
   return Number.isFinite(n) ? new Intl.NumberFormat(locale).format(n) : s
 }
 
-// Force “two paragraphs” for Business Overview
-const twoParasSmart = (input?: string): [string, string] => {
-  const raw = String(input ?? "")
-  if (!raw.trim()) return ["", ""]
-  const byBlank = raw.split(/\r?\n\s*\n/)
-  if (byBlank.length > 1) return [byBlank[0].trim(), byBlank.slice(1).join(" ").trim()]
-  const t = raw.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim()
-  const sentences = t.match(/[^.!?]+[.!?]+(?=\s|$)/g) ?? []
-  if (sentences.length) {
-    const breakAfter = sentences.length >= 16 ? 8 : Math.ceil(sentences.length / 2)
-    const p1 = sentences.slice(0, breakAfter).join(" ").trim()
-    const p2 = sentences.slice(breakAfter).join(" ").trim()
-    if (p1 && p2) return [p1, p2]
+// Ensures Business Overview renders as exactly 2 paragraphs (8 sentences each)
+const ensureTwoParagraphsBy8 = (text?: string) => {
+  const t = String(text ?? "").replace(/\r\n/g, "\n").trim()
+  if (!t) return t
+
+  // If there's already a blank line, keep as-is.
+  if (/\n\n/.test(t)) return t
+
+  // Robust sentence split (keeps punctuation).
+  const sentences = t.match(/[^.!?]+[.!?]+(\s|$)/g)?.map(s => s.trim()) ?? []
+  if (sentences.length >= 8) {
+    const p1 = sentences.slice(0, 8).join(" ").trim()
+    const p2 = sentences.slice(8).join(" ").trim()
+    // Always return two paragraphs; if p2 is empty, return a blank line to ensure spacing.
+    return p2 ? `${p1}\n\n${p2}` : `${p1}\n\n`
   }
+
+  // Fallback: split roughly in half by words so you still see two paragraphs.
   const words = t.split(/\s+/)
   const mid = Math.ceil(words.length / 2)
-  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")]
+  return `${words.slice(0, mid).join(" ")}\n\n${words.slice(mid).join(" ")}`
 }
 
 /* -------------------------------------------------------------------------- */
-/*                        Small blocks you already had                        */
+/*                     Deterministic JSX blocks (NEW)                         */
 /* -------------------------------------------------------------------------- */
 
 function LegalOwnershipBlock({ data }: { data: BusinessPlanData }) {
   const owners = Array.isArray(data.ownership) ? data.ownership : []
+  const percents = owners
+    .map(o => Number(o?.ownershipPercent))
+    .filter(n => Number.isFinite(n)) as number[]
+  const hasEquity = percents.length > 0
+  const totalPct = hasEquity ? Math.round(percents.reduce((a, b) => a + b, 0)) : 0
+
   return (
     <div>
       <ul className="list-disc ml-6 space-y-1">
@@ -93,6 +117,12 @@ function LegalOwnershipBlock({ data }: { data: BusinessPlanData }) {
           </ul>
         </li>
       </ul>
+
+      {/* {hasEquity && (
+        <p className={`mt-2 text-sm ${totalPct === 100 ? "text-green-600" : "text-red-600"}`}>
+          Total equity: <strong>{totalPct}%</strong>{totalPct === 100 ? "" : " (must equal 100%)"}
+        </p>
+      )} */}
     </div>
   )
 }
@@ -122,42 +152,58 @@ function FoundingTeamBlock({ data }: { data: BusinessPlanData }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                   Component                                */
+/*                                Component                                   */
 /* -------------------------------------------------------------------------- */
 
 interface PlanOutputProps {
   planData: BusinessPlanData
   generatedPlan: GeneratedPlan
+
+  // your AI‐trigger
   onEditSection: (sectionKey: string) => void
+
+  // manually editing a specific subsection
   manualEditingSection: string | null
   manualEditingSubsection: string | null
   manualEditedContent: string
+
+  // fire when you click “Edit” on a subsection
   onManualStartEdit: (sectionKey: string, subKey: string) => void
-  onManualSaveSubsection: (sectionKey: string, subKey: string, newContent: string) => void
+
+  // fire when you click “Save” in a subsection’s textarea
+  onManualSaveSubsection: (
+    sectionKey: string,
+    subKey: string,
+    newContent: string
+  ) => void
+
   onManualEditedContentChange: (value: string) => void
   onManualCancel: () => void
+
   onDownload: () => void
 }
 
-export function PlanOutput(props: PlanOutputProps) {
-  const {
-    planData,
-    generatedPlan,
-    onEditSection,
-    onDownload,
-    onManualStartEdit,
-    onManualSaveSubsection,
-    manualEditingSection,
-    manualEditingSubsection,
-    manualEditedContent,
-    onManualEditedContentChange,
-    onManualCancel,
-  } = props
+export function PlanOutput({
+  planData,
+  generatedPlan,
+  onEditSection,
+  onDownload,
 
+  // these two must match exactly what you just put in the interface:
+  onManualStartEdit,
+  onManualSaveSubsection,
+
+  manualEditingSection,
+  manualEditingSubsection,
+  manualEditedContent,
+  onManualEditedContentChange,
+  onManualCancel,
+}: PlanOutputProps) {
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<string | null>(null)
   const toggleSection = (key: string) => setOpenSection(openSection === key ? null : key)
 
+  // ✅ how many products to render (and label with names)
   const productCount = Array.isArray(planData.products) ? planData.products.length : 0
 
   const sections = [
@@ -406,10 +452,10 @@ export function PlanOutput(props: PlanOutputProps) {
 
                     <Separator className="mx-6" />
                     <CardContent className="pt-6 px-6 space-y-6">
-                      {/* ───────────────────────────── Executive Summary (static) ───────────────────────────── */}
+                      {/* ───────────────────────────── Executive Summary (custom) ───────────────────────────── */}
                       {section.key === "executiveSummary" ? (
                         <>
-                          {/* Business Overview */}
+                          {/* Business Overview (typewriter + forced 2 paragraphs) */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Business Overview</h4>
@@ -425,7 +471,6 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </Button>
                               )}
                             </div>
-
                             {manualEditingSection === "executiveSummary" && manualEditingSubsection === "businessOverview" ? (
                               <>
                                 <textarea
@@ -440,19 +485,15 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </div>
                               </>
                             ) : (
-                              (() => {
-                                const [p1, p2] = twoParasSmart(generatedPlan.executiveSummary.businessOverview)
-                                const content = [p1, p2].filter(Boolean).join("\n\n")
-                                return (
-                                  <ReactMarkdown components={{ p: ({ node, ...props }) => <p className="mb-4 leading-7" {...props} /> }}>
-                                    {content}
-                                  </ReactMarkdown>
-                                )
-                              })()
+                              <TypewriterParagraph
+                                text={ensureTwoParagraphsBy8(generatedPlan.executiveSummary.businessOverview)}
+                                speed={28}
+                                className="leading-7"
+                              />
                             )}
                           </div>
 
-                          {/* Our Mission */}
+                          {/* Our Mission (typewriter) */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Our Mission</h4>
@@ -482,7 +523,7 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </div>
                               </>
                             ) : (
-                              <ReactMarkdown>{generatedPlan.executiveSummary.ourMission}</ReactMarkdown>
+                              <TypewriterParagraph text={generatedPlan.executiveSummary.ourMission} speed={30} className="leading-7" />
                             )}
                           </div>
 
@@ -508,52 +549,39 @@ export function PlanOutput(props: PlanOutputProps) {
 
                             {/* Usage of Funds table */}
                             <h5 className="font-semibold mt-2">Usage of Funds (must sum to 100%)</h5>
-                            {(() => {
-                              const ufRows = Array.isArray(generatedPlan?.executiveSummary?.funding?.usageOfFunds)
-                                ? generatedPlan.executiveSummary.funding.usageOfFunds
-                                : []
+                            <table className="w-full table-auto border-collapse border">
+                              <thead>
+                                <tr>
+                                  <th className="border px-2 py-1 text-left">Department</th>
+                                  <th className="border px-2 py-1 text-left">Allocation %</th>
+                                  <th className="border px-2 py-1 text-left">Amount (INR)</th>
+                                  <th className="border px-2 py-1 text-left">How it will be used</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {generatedPlan.executiveSummary.funding.usageOfFunds.map((r, i) => (
+                                  <tr key={i}>
+                                    <td className="border px-2 py-1">{r.department}</td>
+                                    <td className="border px-2 py-1">{`${r.allocationPercent}%`}</td>
+                                    <td className="border px-2 py-1">₹{formatAmount(r.amount)}</td>
+                                    <td className="border px-2 py-1">{r.howUsed}</td>
+                                  </tr>
+                                ))}
+                                <tr>
+                                  <td className="border px-2 py-1 font-semibold">Total</td>
+                                  <td className="border px-2 py-1 font-semibold">
+                                    {
+                                      generatedPlan.executiveSummary.funding.usageOfFunds
+                                        .reduce((a, r) => a + (Number(r.allocationPercent) || 0), 0)
+                                    }%
+                                  </td>
+                                  <td className="border px-2 py-1"></td>
+                                  <td className="border px-2 py-1"></td>
+                                </tr>
+                              </tbody>
+                            </table>
 
-                              if (!ufRows.length) {
-                                return (
-                                  <p className="text-sm text-gray-500">
-                                    No usage-of-funds rows yet. (This section will populate after generation or edit.)
-                                  </p>
-                                )
-                              }
-
-                              const totalPct = ufRows.reduce((a, r) => a + (Number(r?.allocationPercent) || 0), 0)
-
-                              return (
-                                <table className="w-full table-auto border-collapse border">
-                                  <thead>
-                                    <tr>
-                                      <th className="border px-2 py-1 text-left">Department</th>
-                                      <th className="border px-2 py-1 text-left">Allocation %</th>
-                                      <th className="border px-2 py-1 text-left">Amount (INR)</th>
-                                      <th className="border px-2 py-1 text-left">How it will be used</th>
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {ufRows.map((r, i) => (
-                                      <tr key={i}>
-                                        <td className="border px-2 py-1">{r?.department ?? ""}</td>
-                                        <td className="border px-2 py-1">{`${Number(r?.allocationPercent || 0)}%`}</td>
-                                        <td className="border px-2 py-1">₹{formatAmount(r?.amount)}</td>
-                                        <td className="border px-2 py-1">{r?.howUsed ?? ""}</td>
-                                      </tr>
-                                    ))}
-                                    <tr>
-                                      <td className="border px-2 py-1 font-semibold">Total</td>
-                                      <td className="border px-2 py-1 font-semibold">{totalPct}%</td>
-                                      <td className="border px-2 py-1"></td>
-                                      <td className="border px-2 py-1"></td>
-                                    </tr>
-                                  </tbody>
-                                </table>
-                              )
-                            })()}
-
-                            {/* P2 */}
+                            {/* P2 – wrapper div carries the margin instead of className on ReactMarkdown */}
                             <div className="mt-2">
                               <ReactMarkdown>
                                 {generatedPlan.executiveSummary.funding.p2}
@@ -561,7 +589,7 @@ export function PlanOutput(props: PlanOutputProps) {
                             </div>
                           </div>
 
-                          {/* Problem Statement */}
+                          {/* Problem Statement (typewriter) */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Problem Statement</h4>
@@ -591,11 +619,11 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </div>
                               </>
                             ) : (
-                              <ReactMarkdown>{generatedPlan.executiveSummary.problemStatement}</ReactMarkdown>
+                              <TypewriterParagraph text={generatedPlan.executiveSummary.problemStatement} speed={30} className="leading-7" />
                             )}
                           </div>
 
-                          {/* Solution */}
+                          {/* Solution (typewriter) */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Solution</h4>
@@ -625,7 +653,7 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </div>
                               </>
                             ) : (
-                              <ReactMarkdown>{generatedPlan.executiveSummary.solution}</ReactMarkdown>
+                              <TypewriterParagraph text={generatedPlan.executiveSummary.solution} speed={30} className="leading-7" />
                             )}
                           </div>
                         </>
@@ -676,7 +704,7 @@ export function PlanOutput(props: PlanOutputProps) {
                                       <tr key={i}>
                                         {Object.values(row).map((val, j) => (
                                           <td key={j} className="border px-2 py-1">
-                                            {val as any}
+                                            {val}
                                           </td>
                                         ))}
                                       </tr>

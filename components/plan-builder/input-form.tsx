@@ -122,6 +122,46 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
     onChange({ achievements: newAchievements })
   }
 
+  /* ---------- NEW: Ownership & Founders helpers ---------- */
+  const addOwnerRow = () => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    onChange({ ownership: [...owners, { name: "", role: "", ownershipPercent: undefined }] })
+  }
+  const removeOwnerRow = (index: number) => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    onChange({ ownership: owners.filter((_, i) => i !== index) })
+  }
+  const updateOwnerRow = (index: number, field: "name" | "role" | "ownershipPercent", value: string) => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    const next = [...owners]
+    next[index] = {
+      ...next[index],
+      [field]: field === "ownershipPercent" ? (value === "" ? undefined : Number(value)) : value,
+    }
+    onChange({ ownership: next })
+  }
+  const ownersTotalPct = ((data.ownership || []) as Array<{ ownershipPercent?: number }>)
+    .reduce((s, o) => s + (Number(o.ownershipPercent) || 0), 0)
+  const ownersShowSumError =
+    (data.ownership || []).some(o => typeof o.ownershipPercent === "number") &&
+    Math.abs(ownersTotalPct - 100) > 0.5
+
+  const addFounderRow = () => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    onChange({ founders: [...founders, { name: "", title: "", bio: "", linkedinUrl: "" }] })
+  }
+  const removeFounderRow = (index: number) => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    onChange({ founders: founders.filter((_, i) => i !== index) })
+  }
+  const updateFounderRow = (index: number, field: "name" | "title" | "bio" | "linkedinUrl", value: string) => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    const next = [...founders]
+    next[index] = { ...next[index], [field]: value }
+    onChange({ founders: next })
+  }
+  /* ------------------------------------------------------- */
+
   return (
     <TooltipProvider>
       <div className="p-6">
@@ -172,11 +212,11 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
                         <SelectValue placeholder="Select business model" />
                       </SelectTrigger>
                       <SelectContent className="rounded-2xl">
-                        <SelectItem value="saas">SaaS</SelectItem>
-                        <SelectItem value="d2c">D2C</SelectItem>
-                        <SelectItem value="services">Services</SelectItem>
-                        <SelectItem value="marketplace">Marketplace</SelectItem>
-                        <SelectItem value="other">Other</SelectItem>
+                        <SelectItem value="SaaS">SaaS</SelectItem>
+                        <SelectItem value="D2C">D2C</SelectItem>
+                        <SelectItem value="Services">Services</SelectItem>
+                        <SelectItem value="Marketplace">Marketplace</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -201,10 +241,10 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
                       <SelectValue placeholder="Select current stage" />
                     </SelectTrigger>
                     <SelectContent className="rounded-2xl">
-                      <SelectItem value="idea">Idea</SelectItem>
-                      <SelectItem value="mvp">MVP</SelectItem>
-                      <SelectItem value="early-revenue">Early Revenue</SelectItem>
-                      <SelectItem value="growth">Growth</SelectItem>
+                      <SelectItem value="Idea">Idea</SelectItem>
+                      <SelectItem value="MVP">MVP</SelectItem>
+                      <SelectItem value="Early Revenue">Early Revenue</SelectItem>
+                      <SelectItem value="Growth">Growth</SelectItem>
                     </SelectContent>
                   </Select>
                 </div>
@@ -418,10 +458,10 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
                         <SelectValue placeholder="Select pricing model" />
                       </SelectTrigger>
                       <SelectContent className="rounded-2xl">
-                        <SelectItem value="free">Free</SelectItem>
-                        <SelectItem value="subscription">Subscription</SelectItem>
-                        <SelectItem value="one-time">One-time Payment</SelectItem>
-                        <SelectItem value="freemium">Freemium</SelectItem>
+                        <SelectItem value="Free">Free</SelectItem>
+                        <SelectItem value="Subscription">Subscription</SelectItem>
+                        <SelectItem value="One-time Payment">One-time Payment</SelectItem>
+                        <SelectItem value="Freemium">Freemium</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
@@ -471,17 +511,142 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
                         <SelectValue placeholder="Select legal structure" />
                       </SelectTrigger>
                       <SelectContent className="rounded-2xl">
-                        <SelectItem value="sole-proprietorship">Sole Proprietorship</SelectItem>
-                        <SelectItem value="partnership">Partnership</SelectItem>
-                        <SelectItem value="llc">LLC</SelectItem>
-                        <SelectItem value="corporation">Corporation</SelectItem>
-                        <SelectItem value="pvt-ltd">Private Limited</SelectItem>
+                        {/* UPDATED options (label AND value) */}
+                        <SelectItem value="Sole Proprietorship">Sole Proprietorship</SelectItem>
+                        <SelectItem value="Partnership">Partnership</SelectItem>
+                        <SelectItem value="LLP">LLP</SelectItem>
+                        <SelectItem value="Private Limited">Private Limited</SelectItem>
+                        <SelectItem value="Other">Other</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>
                 </div>
 
+                {/* NEW: Incorporation fields */}
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                  <div className="space-y-2">
+                    <Label htmlFor="incorporationCountry">Country of Incorporation</Label>
+                    <Input
+                      id="incorporationCountry"
+                      value={data.incorporationCountry || ""}
+                      onChange={(e) => onChange({ incorporationCountry: e.target.value })}
+                      placeholder="e.g., India"
+                      className="rounded-2xl"
+                    />
+                  </div>
+                  <div className="space-y-2">
+                    <Label htmlFor="incorporationState">State/Province of Incorporation</Label>
+                    <Input
+                      id="incorporationState"
+                      value={data.incorporationState || ""}
+                      onChange={(e) => onChange({ incorporationState: e.target.value })}
+                      placeholder="e.g., Maharashtra"
+                      className="rounded-2xl"
+                    />
+                  </div>
+                </div>
+
+                {/* NEW: Ownership Repeater */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <Label>Ownership (Name, Role, % equity optional)</Label>
+                    <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={addOwnerRow}>
+                      <Plus className="h-4 w-4 mr-1" /> Add Owner
+                    </Button>
+                  </div>
+                  {(data.ownership || []).map((o, idx) => (
+                    <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                      <Input
+                        className="md:col-span-4 rounded-2xl h-12"
+                        placeholder="Owner name"
+                        value={o.name}
+                        onChange={(e) => updateOwnerRow(idx, "name", e.target.value)}
+                      />
+                      <Input
+                        className="md:col-span-5 rounded-2xl h-12"
+                        placeholder="Role / Title"
+                        value={o.role}
+                        onChange={(e) => updateOwnerRow(idx, "role", e.target.value)}
+                      />
+                      <Input
+                        className="md:col-span-2 rounded-2xl h-12"
+                        placeholder="%"
+                        value={o.ownershipPercent ?? ""}
+                        onChange={(e) => updateOwnerRow(idx, "ownershipPercent", e.target.value)}
+                      />
+                      {(data.ownership || []).length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="md:col-span-1 h-12 rounded-xl"
+                          onClick={() => removeOwnerRow(idx)}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                  <div className={`text-sm ${ownersShowSumError ? "text-red-600" : "text-gray-500"}`}>
+                    {ownersShowSumError
+                      ? `Ownership percentages must total 100%. Current total: ${ownersTotalPct}%`
+                      : `If you provide equity %, the total must equal 100%. Current total: ${ownersTotalPct || 0}%`}
+                  </div>
+                </div>
+
+                {/* NEW: Founders Repeater */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between mt-4">
+                    <Label>Founding Team</Label>
+                    <Button type="button" size="sm" variant="outline" className="rounded-xl" onClick={addFounderRow}>
+                      <Plus className="h-4 w-4 mr-1" /> Add Founder
+                    </Button>
+                  </div>
+                  {(data.founders || []).map((f, idx) => (
+                    <div key={idx} className="space-y-2 p-3 border rounded-xl">
+                      <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                        <Input
+                          className="md:col-span-4 rounded-2xl h-12"
+                          placeholder="Founder name"
+                          value={f.name}
+                          onChange={(e) => updateFounderRow(idx, "name", e.target.value)}
+                        />
+                        <Input
+                          className="md:col-span-4 rounded-2xl h-12"
+                          placeholder="Title (e.g., Co-Founder & CTO)"
+                          value={f.title}
+                          onChange={(e) => updateFounderRow(idx, "title", e.target.value)}
+                        />
+                        <Input
+                          className="md:col-span-4 rounded-2xl h-12"
+                          placeholder="LinkedIn URL (optional)"
+                          value={f.linkedinUrl || ""}
+                          onChange={(e) => updateFounderRow(idx, "linkedinUrl", e.target.value)}
+                        />
+                      </div>
+                      <Textarea
+                        className="w-full rounded-2xl"
+                        placeholder="Short bio (optional)"
+                        value={f.bio || ""}
+                        onChange={(e) => updateFounderRow(idx, "bio", e.target.value)}
+                      />
+                      {(data.founders || []).length > 1 && (
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          className="rounded-xl"
+                          onClick={() => removeFounderRow(idx)}
+                        >
+                          <Minus className="h-4 w-4" />
+                        </Button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+
+                {/* Existing team fields */}
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mt-6">
                   <div className="space-y-2">
                     <Label htmlFor="teamSize">Team Size</Label>
                     <Input
@@ -538,10 +703,10 @@ export function PlanInputForm({ data, onChange }: PlanInputFormProps) {
                         <SelectValue placeholder="Select funding status" />
                       </SelectTrigger>
                       <SelectContent className="rounded-2xl">
-                        <SelectItem value="none">None</SelectItem>
-                        <SelectItem value="bootstrapped">Bootstrapped</SelectItem>
-                        <SelectItem value="angel">Angel Investment</SelectItem>
-                        <SelectItem value="vc">VC Funding</SelectItem>
+                        <SelectItem value="None">None</SelectItem>
+                        <SelectItem value="Bootstrapped">Bootstrapped</SelectItem>
+                        <SelectItem value="Angel Investment">Angel Investment</SelectItem>
+                        <SelectItem value="VC Funding">VC Funding</SelectItem>
                       </SelectContent>
                     </Select>
                   </div>

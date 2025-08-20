@@ -4,13 +4,13 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
 import OpenAI from "openai"
 import { z } from "zod"
-import type { BusinessPlanData, GeneratedPlan } from "@/app/plan-builder/PlanBuilderClient"
+import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
 
 // ──────────────────────────────────────────────────────────────
 // Helpers (balanced expansion/compression)
 // ──────────────────────────────────────────────────────────────
 
-type OpenAIClient = InstanceType<typeof OpenAI>;
+type OpenAIClient = InstanceType<typeof OpenAI>
 
 function stripFences(text: string): string {
   let t = (text ?? "").trim()
@@ -33,14 +33,12 @@ const setByPath = (obj: any, path: string, value: string) => {
 
 const wc = (s: string) => (s || "").trim().split(/\s+/).filter(Boolean).length
 
-// Hard truncate to word boundary
 function takeFirstWords(s: string, maxWords: number) {
   const words = s.trim().split(/\s+/)
   if (words.length <= maxWords) return s.trim()
   return words.slice(0, maxWords).join(" ").replace(/[.,;:!?-]*$/, "") + "…"
 }
 
-// Simple emoji remover (safety for any user-provided strings)
 function stripEmojis(s: string) {
   try {
     return (s || "").replace(/[\p{Extended_Pictographic}]/gu, "")
@@ -60,24 +58,36 @@ function toAmountString(n: number): string {
   return Math.round(n).toLocaleString("en-US")
 }
 
-// Balance targets (XS = ~4–5 lines per subsection)
-const BALANCE_TARGETS: Record<string, { min: number; max: number }> = {
-  // Executive Summary
-  "executiveSummary.businessOverview": { min: 60, max: 90 },
-  "executiveSummary.fundingRequirementsUsageOfFunds": { min: 60, max: 90 },
-  "executiveSummary.pastMilestones": { min: 55, max: 80 },
-  "executiveSummary.problemStatementSolution": { min: 55, max: 80 },
+// ──────────────────────────────────────────────────────────────
+// NEW: Usage of Funds types + validation
+// ──────────────────────────────────────────────────────────────
+type UsageOfFundsRow = {
+  department: string
+  allocationPercent: number // must sum to 100
+  amount: string            // digits/commas only; UI can prefix ₹
+  howUsed: string
+}
 
-  // Company Overview
+function validateUsageOfFunds(rows: UsageOfFundsRow[]) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    return { ok: false, error: "usage_of_funds_missing_or_empty", total: 0 }
+  }
+  const total = rows.reduce((a, r) => a + (Number(r?.allocationPercent) || 0), 0)
+  if (Math.round(total) !== 100) {
+    return { ok: false, error: "usage_of_funds_percent_total_must_equal_100", total }
+  }
+  return { ok: true, total }
+}
+
+// Balance targets
+const BALANCE_TARGETS: Record<string, { min: number; max: number }> = {
+  // Company Overview (trimmed to 4 fields)
   "companyOverview.visionStatement": { min: 50, max: 80 },
   "companyOverview.missionStatement": { min: 50, max: 80 },
-  "companyOverview.companyHistoryBackground": { min: 55, max: 85 },
   "companyOverview.foundingTeam": { min: 50, max: 80 },
   "companyOverview.legalStructureOwnership": { min: 45, max: 75 },
-  "companyOverview.coreValuesCulture": { min: 50, max: 80 },
-  "companyOverview.companyObjectives": { min: 50, max: 80 },
 
-  // Products (string fields)
+  // Products
   "products.overview": { min: 60, max: 90 },
   "products.uniqueSellingPropositions": { min: 50, max: 80 },
   "products.developmentRoadmap": { min: 50, max: 80 },
@@ -113,7 +123,7 @@ const BALANCE_TARGETS: Record<string, { min: number; max: number }> = {
   "managementOrganization.organizationalChart": { min: 50, max: 80 },
   "managementOrganization.hiringPlanKeyRoles": { min: 50, max: 80 },
 
-  // Financial Plan (string fields only)
+  // Financial Plan
   "financialPlan.overview": { min: 55, max: 85 },
   "financialPlan.keyAssumptions": { min: 55, max: 85 },
   "financialPlan.keyFinancialMetricsRatios": { min: 55, max: 85 },
@@ -138,25 +148,17 @@ for (let i = 1; i <= 10; i++) {
   BALANCE_TARGETS[`products.product${i}`] = { min: 35, max: 55 }
 }
 
-// ── Structured markdown fields (no emojis) ──
+// ── keep exec summary plain; allow markdown for products & some lists ──
 const STRUCTURED_MARKDOWN_FIELDS = new Set<string>([
-  "executiveSummary.businessOverview",
-  "executiveSummary.fundingRequirementsUsageOfFunds",
+  ...Array.from({ length: 10 }, (_, i) => `products.product${i + 1}`),
+  "products.uniqueSellingPropositions",
+  "products.developmentRoadmap",
+  "products.intellectualPropertyRegulatoryStatus",
+  "financialPlan.useOfFundsRunway",
+  "appendices.projectedFinancesTables",
 ])
 
-function structuredMarkdownGuidance(path: string) {
-  if (path === "executiveSummary.businessOverview") {
-    return `Formatting:
-- Start with a 1–2 sentence paragraph about the company.
-- Then add a bold subhead **Key Highlights** followed by hyphen bullets (no emojis).
-- Then add a bold subhead **Our Mission** followed by hyphen bullets (no emojis).`
-  }
-  if (path === "executiveSummary.fundingRequirementsUsageOfFunds") {
-    return `Formatting:
-- Start with one sentence stating the total funding required.
-- Then add a bold subhead **Allocation of Funds** with hyphen bullets "<Item> — <Amount>" that sum EXACTLY to fundingNeeded (digits/commas only).
-- Then add a bold subhead **Objective** with 2–4 hyphen bullets (no emojis).`
-  }
+function structuredMarkdownGuidance(_path: string) {
   return ""
 }
 
@@ -189,16 +191,8 @@ async function withRetries<T>(fn: () => Promise<T>) {
 // ──────────────────────────────────────────────────────────────
 // Expansion / Compression
 // ──────────────────────────────────────────────────────────────
-
 async function expandToRange({
-  client,
-  model,
-  original,
-  min,
-  max,
-  formData,
-  path,
-  allowMarkdown = false,
+  client, model, original, min, max, formData, path, allowMarkdown = false,
 }: {
   client: OpenAIClient
   model: string
@@ -213,10 +207,7 @@ async function expandToRange({
 
   for (let i = 0; i < 3 && wc(text) < min; i++) {
     const formattingRule = allowMarkdown
-      ? `Use MARKDOWN only where appropriate:
-- Keep any existing bold subheads and hyphen bullets.
-- No emojis anywhere.
-${structuredMarkdownGuidance(path)}`
+      ? `Use MARKDOWN only where appropriate. No emojis.`
       : `Return PLAIN TEXT (no headings/markdown).`
 
     const sys = `You expand business-plan prose.
@@ -237,7 +228,7 @@ ${JSON.stringify({
 SECTION (${path}) — CURRENT TEXT:
 ${text}
 
-TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed only per rules).`
+TASK: Rewrite to ${min}–${max} words. Return only the text.`
     const res = await withRetries(() =>
       client.chat.completions.create({
         model,
@@ -254,7 +245,7 @@ TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed o
 
   if (wc(text) < min) {
     const addSys = allowMarkdown
-      ? `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Keep existing markdown structure; no emojis.`
+      ? `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Keep any existing structure; no emojis.`
       : `Add 1–3 concise sentences to reach at least ${min} words but not exceed ${max}. Plain text only.`
     const addUsr = `SECTION (${path}) — CURRENT TEXT:\n${text}\n\nAdditions (not a rewrite):`
     const add = await withRetries(() =>
@@ -276,14 +267,7 @@ TASK: Rewrite to ${min}–${max} words. Return only the text (markdown allowed o
 }
 
 async function compressToMaxStrict({
-  client,
-  model,
-  original,
-  max,
-  formData,
-  path,
-  passes = 3,
-  allowMarkdown = false,
+  client, model, original, max, formData, path, passes = 3, allowMarkdown = false,
 }: {
   client: OpenAIClient
   model: string
@@ -297,7 +281,7 @@ async function compressToMaxStrict({
   let text = original.trim()
   for (let i = 0; i < passes && wc(text) > max; i++) {
     const formattingRule = allowMarkdown
-      ? `Keep existing MARKDOWN structure (bold subheads, hyphen bullets). No emojis.`
+      ? `Keep any existing structure. No emojis.`
       : `Return PLAIN TEXT (no headings/markdown).`
 
     const sys = `You condense business-plan prose.
@@ -334,13 +318,8 @@ TASK: Rewrite to ≤ ${max} words. Return only the rewritten text.`
   return text
 }
 
-// Main balancer (logs + strict compression)
 async function balancePlanSections({
-  client,
-  model,
-  plan,
-  formData,
-  enable = true,
+  client, model, plan, formData, enable = true,
 }: {
   client: OpenAIClient
   model: string
@@ -371,19 +350,17 @@ async function balancePlanSections({
       }
     } catch (e) {
       if (LOG) console.warn(`balancePlanSections(${path}) skipped:`, e)
-      // keep original on error
     }
   }
 }
 
 // ──────────────────────────────────────────────────────────────
-// Financial normalizer (post-parse guardrail)
+// Financial normalizer
 // ──────────────────────────────────────────────────────────────
 function normalizeFinancials(plan: any, formData: any) {
   const fundingNeededN =
     parseAmount(plan.fundingNeeded) || parseAmount(formData?.fundingNeeded)
 
-  // Build a use-of-funds array from formData.fundingUseBreakdown if present
   const rawFub = Array.isArray(formData?.fundingUseBreakdown) ? formData.fundingUseBreakdown : []
   const breakdown: Array<{ item: string; amountN: number }> = []
   for (const r of rawFub) {
@@ -392,7 +369,6 @@ function normalizeFinancials(plan: any, formData: any) {
     if (item && amtN > 0) breakdown.push({ item, amountN: amtN })
   }
 
-  // If no user breakdown provided, try to infer from investmentUtilization
   if (!breakdown.length && Array.isArray(formData?.investmentUtilization)) {
     for (const r of formData.investmentUtilization) {
       const item = stripEmojis((r?.item ?? "").trim())
@@ -401,12 +377,10 @@ function normalizeFinancials(plan: any, formData: any) {
     }
   }
 
-  // If we still have nothing but fundingNeeded, create a single bucket
   if (!breakdown.length && fundingNeededN > 0) {
     breakdown.push({ item: "Working capital and contingency", amountN: fundingNeededN })
   }
 
-  // Make total match fundingNeeded if present
   if (fundingNeededN > 0 && breakdown.length) {
     let sum = breakdown.reduce((a, b) => a + b.amountN, 0)
     if (sum < fundingNeededN) {
@@ -422,7 +396,6 @@ function normalizeFinancials(plan: any, formData: any) {
     }
   }
 
-  // OpEx alignment with monthlyExpenses (if provided)
   const monthlyExpN = parseAmount(formData?.monthlyExpenses)
   if (monthlyExpN > 0 && Array.isArray(plan.financialPlan?.opEx)) {
     for (const row of plan.financialPlan.opEx) {
@@ -432,47 +405,17 @@ function normalizeFinancials(plan: any, formData: any) {
     }
   }
 
-  // Ensure Month 1 beginning cash aligns with initialInvestment if present
   const initCashN =
     parseAmount(plan.initialInvestment) || parseAmount(formData?.initialInvestment)
   if (initCashN > 0 && Array.isArray(plan.financialPlan?.cashFlowRunwayAnalysis) && plan.financialPlan.cashFlowRunwayAnalysis[0]) {
     plan.financialPlan.cashFlowRunwayAnalysis[0].beginningCash = toAmountString(initCashN)
   }
 
-  // ── Rewrite funding sections with consistent, emoji-free markdown ──
   if (fundingNeededN > 0 && breakdown.length) {
     const mdList = breakdown
       .map(b => `- ${stripEmojis(b.item)} — ${toAmountString(b.amountN)}`)
       .join("\n")
 
-    const company = stripEmojis((formData?.businessName || "the company").trim())
-
-    // Optional objectives from formData; else defaults
-    const objectives: string[] = Array.isArray((formData as any)?.fundingObjectives)
-      ? ((formData as any).fundingObjectives as string[]).map(x => stripEmojis(String(x || "").trim())).filter(Boolean)
-      : []
-
-    if (!objectives.length) {
-      objectives.push(
-        "Strengthen product-market fit",
-        "Expand the user base through effective outreach",
-        "Establish a foundation for long-term sustainable growth",
-      )
-    }
-
-    const execFunding = [
-      `We are seeking ${toAmountString(fundingNeededN)} in funding to accelerate the growth and development of ${company}.`,
-      ``,
-      `**Allocation of Funds**`,
-      mdList,
-      ``,
-      `**Objective**`,
-      ...objectives.map(o => `- ${o}`),
-    ].join("\n")
-
-    plan.executiveSummary.fundingRequirementsUsageOfFunds = execFunding
-
-    // Financial Plan version (kept simple list)
     plan.financialPlan.useOfFundsRunway = [
       `Planned use of funds totals ${toAmountString(fundingNeededN)} and is allocated to:`,
       mdList,
@@ -480,44 +423,6 @@ function normalizeFinancials(plan: any, formData: any) {
   }
 }
 
-// Optional: enforce structured Business Overview (intro + highlights + mission)
-function structureExecBusinessOverview(plan: any, formData: any) {
-  const original = String(plan?.executiveSummary?.businessOverview || "").trim()
-  const intro =
-    stripEmojis((formData as any)?.execIntro || "") ||
-    (original ? original.split(/\.\s/).slice(0, 1).join(". ") + "." : "")
-
-  // Highlights: prefer user-provided execHighlights; else use achievements; else none
-  const highlights: string[] = Array.isArray((formData as any)?.execHighlights)
-    ? (formData as any).execHighlights.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-    : Array.isArray((formData as any)?.achievements)
-      ? (formData as any).achievements.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-      : []
-
-  // Mission bullets (user-provided or defaults)
-  const missionBullets: string[] = Array.isArray((formData as any)?.missionBullets)
-    ? (formData as any).missionBullets.map((x: string) => stripEmojis(String(x || "").trim())).filter(Boolean)
-    : [
-        "Save valuable time and resources",
-        "Boost productivity and growth",
-        "Focus on what matters most — running their business, not their tools",
-      ]
-
-  const parts = [
-    intro,
-    "",
-    "**Key Highlights**",
-    ...highlights.map(h => `- ${h}`),
-    "",
-    "**Our Mission**",
-    ...missionBullets.map(m => `- ${m}`),
-  ]
-
-  plan.executiveSummary.businessOverview = parts.join("\n").trim()
-}
-
-// ──────────────────────────────────────────────────────────────
-// Enforcement: guarantee inclusion of key facts in prose
 // ──────────────────────────────────────────────────────────────
 function includeIfMissing(haystack: string, needle: string) {
   const h = (haystack || "").trim()
@@ -527,15 +432,6 @@ function includeIfMissing(haystack: string, needle: string) {
 }
 
 function enforceInclusions(plan: any, formData: any) {
-  // === existing code you already have (fundingReceived, investmentUtilization, notes, upcomingMilestone) ===
-
-  // ── Location (country/region) → Company History; Operation location → Ops Overview
-  const loc = (formData?.location || "").trim()
-  if (loc) {
-    const sentence = `Headquartered in ${loc}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
   const opLoc = (formData as any)?.operationLocation?.trim?.()
   if (opLoc) {
     const sentence = `Operations are based in ${opLoc}.`
@@ -543,15 +439,6 @@ function enforceInclusions(plan: any, formData: any) {
       includeIfMissing(plan.operationsPlan.overview, sentence)
   }
 
-  // ── Business stage → Company Objectives
-  const stage = (formData?.businessStage || "").trim()
-  if (stage) {
-    const sentence = `Current stage: ${stage}.`
-    plan.companyOverview.companyObjectives =
-      includeIfMissing(plan.companyOverview.companyObjectives, sentence)
-  }
-
-  // ── Founder role → Founding Team
   const founderRole = (formData?.founderRole || "").trim()
   if (founderRole) {
     const sentence = `Founder's role: ${founderRole}.`
@@ -559,15 +446,6 @@ function enforceInclusions(plan: any, formData: any) {
       includeIfMissing(plan.companyOverview.foundingTeam, sentence)
   }
 
-  // ── Description → Company History (kept as a plain sentence)
-  const description = (formData?.description || "").trim()
-  if (description) {
-    const sentence = /[.?!]$/.test(description) ? description : `${description}.`
-    plan.companyOverview.companyHistoryBackground =
-      includeIfMissing(plan.companyOverview.companyHistoryBackground, sentence)
-  }
-
-  // ── Root-level USPs / key features → Products → Unique Selling Propositions
   const uspRoot = (formData as any)?.uniqueSellingPoint?.trim?.() || ""
   const keyFeatures = Array.isArray((formData as any)?.keyFeatures)
     ? (formData as any).keyFeatures.map((x: string) => String(x || "").trim()).filter(Boolean)
@@ -586,126 +464,198 @@ function enforceInclusions(plan: any, formData: any) {
   }
 }
 
+// ──────────────────────────────────────────────────────────────
+// Schema (robust defaults + tolerant products)
+// ──────────────────────────────────────────────────────────────
 
-// ──────────────────────────────────────────────────────────────
-// Schema
-// ──────────────────────────────────────────────────────────────
+// Loose string: coerce anything to string, default "".
+const S = () =>
+  z.preprocess(
+    (v) => {
+      if (v === undefined || v === null) return ""
+      if (typeof v === "string") return v
+      if (typeof v === "number" || typeof v === "boolean") return String(v)
+      try { return JSON.stringify(v) } catch { return String(v) }
+    },
+    z.string()
+  ).default("")
+
+// Accept string/object/array for product entries; we coerce later.
+const productEntrySchema = z.union([
+  z.string(),
+  z.object({}).passthrough(),
+  z.array(z.any()),
+])
+
+const usageRowSchema = z.object({
+  department: S(),
+  allocationPercent: z.number(),
+  amount: S(),
+  howUsed: S(),
+})
+
 const businessPlanSchema = z.object({
   coverPage: z.object({
-    logo: z.string(),
-  }),
+    logo: S(),
+  }).default({}),
+
   executiveSummary: z.object({
-    businessOverview: z.string(),
-    fundingRequirementsUsageOfFunds: z.string(),
-    pastMilestones: z.string(),
-    problemStatementSolution: z.string(),
-  }),
+    businessOverview: S(),
+    ourMission: S(),
+    funding: z.object({
+      p1: S(),
+      usageOfFunds: z.array(usageRowSchema), // keep strict; we validate after
+      p2: S(),
+    }).default({}),
+    problemStatement: S(),
+    solution: S(),
+  }).default({}),
+
   companyOverview: z.object({
-    visionStatement: z.string(),
-    missionStatement: z.string(),
-    companyHistoryBackground: z.string(),
-    foundingTeam: z.string(),
-    legalStructureOwnership: z.string(),
-    coreValuesCulture: z.string(),
-    companyObjectives: z.string(),
-  }),
+    visionStatement: S(),
+    missionStatement: S(),
+    legalStructureOwnership: S(),
+    foundingTeam: S(),
+  }).default({}),
+
   products: z.object({
-    overview: z.string(),
-    product1: z.string(),
-    product2: z.string(),
-    product3: z.string(),
-    product4: z.string(),
-    product5: z.string(),
-    product6: z.string(),
-    product7: z.string(),
-    product8: z.string(),
-    product9: z.string(),
-    product10: z.string(),
-    uniqueSellingPropositions: z.string(),
-    developmentRoadmap: z.string(),
-    intellectualPropertyRegulatoryStatus: z.string(),
-  }),
+    overview: S(),
+    product1: productEntrySchema,
+    product2: productEntrySchema,
+    product3: productEntrySchema,
+    product4: productEntrySchema,
+    product5: productEntrySchema,
+    product6: productEntrySchema,
+    product7: productEntrySchema,
+    product8: productEntrySchema,
+    product9: productEntrySchema,
+    product10: productEntrySchema,
+    uniqueSellingPropositions: S(),
+    developmentRoadmap: S(),
+    intellectualPropertyRegulatoryStatus: S(),
+  }).default({}),
+
   marketAnalysis: z.object({
-    industryOverviewSize: z.string(),
-    growthTrendsDrivers: z.string(),
-    underlyingBusinessDrivers: z.string(),
-    targetMarketSegmentation: z.string(),
-    customerPersonasNeeds: z.string(),
-    competitiveLandscapePositioning: z.string(),
-    productsDifferentiation: z.string(),
-    barriersToEntry: z.string(),
-  }),
+    industryOverviewSize: S(),
+    growthTrendsDrivers: S(),
+    underlyingBusinessDrivers: S(),
+    targetMarketSegmentation: S(),
+    customerPersonasNeeds: S(),
+    competitiveLandscapePositioning: S(),
+    productsDifferentiation: S(),
+    barriersToEntry: S(),
+  }).default({}),
+
   marketingSalesStrategies: z.object({
-    distributionChannels: z.string(),
-    technologyCostStructure: z.string(),
-    customerPricingStructure: z.string(),
-    retentionStrategies: z.string(),
-    integratedFunnelFinancialImpact: z.string(),
-  }),
+    distributionChannels: S(),
+    technologyCostStructure: S(),
+    customerPricingStructure: S(),
+    retentionStrategies: S(),
+    integratedFunnelFinancialImpact: S(),
+  }).default({}),
+
   operationsPlan: z.object({
-    overview: z.string(),
-    organizationalStructureTeamResponsibilities: z.string(),
-    infrastructure: z.string(),
-    customerOnboardingToRenewalWorkflow: z.string(),
-    crossFunctionalCommunicationDecisionMaking: z.string(),
-    keyPerformanceMetricsGoals: z.string(),
-  }),
+    overview: S(),
+    organizationalStructureTeamResponsibilities: S(),
+    infrastructure: S(),
+    customerOnboardingToRenewalWorkflow: S(),
+    crossFunctionalCommunicationDecisionMaking: S(),
+    keyPerformanceMetricsGoals: S(),
+  }).default({}),
+
   managementOrganization: z.object({
-    overview: z.string(),
-    organizationalChart: z.string(),
-    hiringPlanKeyRoles: z.string(),
-  }),
+    overview: S(),
+    organizationalChart: S(),
+    hiringPlanKeyRoles: S(),
+  }).default({}),
+
   financialPlan: z.object({
-    overview: z.string(),
-    keyAssumptions: z.string(),
-    revenueForecast: z.array(z.object({ period: z.string(), amount: z.string() })),
-    cogs: z.array(z.object({ period: z.string(), amount: z.string() })),
-    opEx: z.array(z.object({ period: z.string(), amount: z.string() })),
+    overview: S(),
+    keyAssumptions: S(),
+    revenueForecast: z.array(z.object({ period: S(), amount: S() })).default([]),
+    cogs: z.array(z.object({ period: S(), amount: S() })).default([]),
+    opEx: z.array(z.object({ period: S(), amount: S() })).default([]),
     projectedPnl: z.array(
-      z.object({ period: z.string(), grossProfit: z.string(), ebitda: z.string(), netIncome: z.string() })
-    ),
+      z.object({ period: S(), grossProfit: S(), ebitda: S(), netIncome: S() })
+    ).default([]),
     cashFlowRunwayAnalysis: z.array(z.object({
-      period: z.string(),
-      beginningCash: z.string(),
-      inflows: z.string(),
-      outflows: z.string(),
-      endingCash: z.string(),
-      runwayMonths: z.string(),
-    })),
-    keyFinancialMetricsRatios: z.string(),
-    useOfFundsRunway: z.string(),
-    keySensitivityRiskScenarios: z.string(),
-    summaryOutlook: z.string(),
-  }),
+      period: S(),
+      beginningCash: S(),
+      inflows: S(),
+      outflows: S(),
+      endingCash: S(),
+      runwayMonths: S(),
+    })).default([]),
+    keyFinancialMetricsRatios: S(),
+    useOfFundsRunway: S(),
+    keySensitivityRiskScenarios: S(),
+    summaryOutlook: S(),
+  }).default({}),
+
   riskAnalysisMitigation: z.object({
-    overview: z.string(),
-    marketRisks: z.string(),
-    operationalRisks: z.string(),
-    regulatoryLegalRisks: z.string(),
-    financialRisks: z.string(),
-    contingencyPlans: z.string(),
-  }),
+    overview: S(),
+    marketRisks: S(),
+    operationalRisks: S(),
+    regulatoryLegalRisks: S(),
+    financialRisks: S(),
+    contingencyPlans: S(),
+  }).default({}),
+
   appendices: z.object({
-    glossary: z.string(),
-    managementTeamsResources: z.string(),
-    projectedFinancesTables: z.string(),
-  }),
+    glossary: S(),
+    managementTeamsResources: S(),
+    projectedFinancesTables: S(),
+  }).default({}),
 
   // Root-level fields
-  initialInvestment: z.string().optional().default(""),
-  fundingNeeded: z.string().optional().default(""),
-  fundingReceived: z.string().optional().default(""),
-  monthlyRevenue: z.string().optional().default(""),
-  investmentUtilization: z.array(z.object({ item: z.string(), amount: z.string() })).optional().default([]),
+  initialInvestment: S(),
+  fundingNeeded: S(),
+  fundingReceived: S(),
+  monthlyRevenue: S(),
+  investmentUtilization: z.array(z.object({ item: S(), amount: S() })).default([]),
 
-  // ✅ NEW root fields
-  notes: z.string().optional().default(""),
-  upcomingMilestone: z.string().optional().default(""),
+  // Root extras
+  notes: S(),
+  upcomingMilestone: S(),
 })
 
 export type GenerateBusinessPlanResult =
   | { success: true; plan: GeneratedPlan; planId: string }
   | { success: false; error: string }
+
+// ──────────────────────────────────────────────────────────────
+// Coercion helpers (products)
+// ──────────────────────────────────────────────────────────────
+function coerceProductToString(x: any): string {
+  if (typeof x === "string") return x.trim()
+  if (Array.isArray(x)) {
+    const lines = x
+      .map((v) => (typeof v === "string" ? v.trim() : JSON.stringify(v)))
+      .filter(Boolean)
+      .slice(0, 4)
+      .map((v) => `- ${stripEmojis(v)}`)
+    return lines.join("\n")
+  }
+  if (x && typeof x === "object") {
+    if (Array.isArray((x as any).bullets)) {
+      const lines = (x as any).bullets
+        .map((v: any) => (typeof v === "string" ? v.trim() : JSON.stringify(v)))
+        .filter(Boolean)
+        .slice(0, 4)
+        .map((v: string) => `- ${stripEmojis(v)}`)
+      if (lines.length) return lines.join("\n")
+    }
+    const entries = Object.entries(x as Record<string, any>)
+      .filter(([_, v]) => v != null && String(v).trim() !== "")
+      .slice(0, 4)
+      .map(([k, v]) => {
+        const val = Array.isArray(v) ? v.join(", ") : String(v)
+        return `- ${stripEmojis(`${k}: ${val}`)}`
+      })
+    if (entries.length) return entries.join("\n")
+  }
+  return String(x ?? "").trim()
+}
 
 // ──────────────────────────────────────────────────────────────
 // Main action
@@ -714,11 +664,9 @@ export async function generateBusinessPlan(
   formData: BusinessPlanData
 ): Promise<GenerateBusinessPlanResult> {
   try {
-    // Supabase
     const cookiesStore = await cookies()
     const supabase = createServerComponentClient({ cookies: () => cookiesStore })
 
-    // Hints for marketing section
     const selectedChannels = Array.isArray(formData.marketingChannels)
       ? formData.marketingChannels.filter(Boolean)
       : []
@@ -732,14 +680,13 @@ export async function generateBusinessPlan(
     • Sales team: ${salesTeamHint}
     IMPORTANT: Incorporate the hints above naturally into the **Distribution Channels** subsection (its first paragraph). Do not create extra subsections or separate bullet groups for these hints.
     `
-    // Achievements
+
     const achievements = (formData.achievements ?? []).map(a => a?.trim()).filter(Boolean)
-    const achievementsHint = achievements.length
-      ? `USER HINTS FOR EXECUTIVE SUMMARY → Past Milestones:
-• Weave these achievements into the first paragraph (no extra bullets): ${achievements.join(", ")}`
+    const achievementsWeaveHint = achievements.length
+      ? `USER HINTS FOR EXECUTIVE SUMMARY → Business Overview:
+• If relevant, mention these achievements neutrally in the narrative (no bullets, no subheads): ${achievements.join(", ")}.`
       : ""
 
-    // Finance facts → to be woven
     const financeFacts = (() => {
       const lines: string[] = []
       const fd: any = formData as any
@@ -773,29 +720,17 @@ FINANCE FACTS (use these exact numbers):
 ${lines.join("\n")}
 
 STRICT INSTRUCTIONS (enforce consistency):
-- "Executive Summary → Funding Requirements & Usage of Funds" AND "Financial Plan → Use of Funds & Runway"
-  MUST show a short bullet list of use-of-funds line items with amounts that SUM EXACTLY to "fundingNeeded".
-  If the listed items total less than "fundingNeeded", ADD a final line "Working capital and contingency" for the remainder.
-  If they exceed "fundingNeeded", REDUCE the last line item so the total equals "fundingNeeded".
-
-- Mirror "Investment utilization" entries in prose (no separate table).
-- In "Financial Plan → Key Assumptions", explicitly include a sentence: "Funding received to date: <fundingReceived>."
-- In "Financial Plan → Overview", explicitly include a sentence mirroring investment utilization, e.g. "Investment utilization: Marketing: 5,000; Development: 45,000."
-
-- Align "Financial Plan → OpEx":
-  If "Monthly expenses" is provided, set each OpEx row (for the visible months) to that same amount.
-
-- Keep all currency strings digits/commas only (no symbols).
-
-- ALSO include these same values at the top level of the JSON as:
-  initialInvestment, fundingNeeded, fundingReceived, monthlyRevenue, investmentUtilization.
-`
+- "Executive Summary → Funding Requirements" MUST include:
+  P1 paragraph (4 sentences), "Usage of Funds" table with rows { Department | Allocation % | Amount | How it will be used } that sum to 100%, and P2 paragraph (4–6 sentences). No bullets.
+- "Financial Plan → Use of Funds & Runway" should mirror the same totals in list form.
+- If user line items total < fundingNeeded, add a remainder bucket "Working capital and contingency" to reach the total; if they exceed, reduce the last item.
+- Currency strings must be digits/commas only (no symbols); UI may add symbols.
+- Align "Financial Plan → OpEx" with Monthly expenses when provided.`
     })()
 
-    // NEW: hints for milestone + notes
     const milestoneHint = (formData as any).upcomingMilestone?.trim()
-      ? `OBJECTIVES HINT:
-Add this exact sentence at the END of **Company Overview → Company Objectives** (verbatim):
+      ? `MISSION HINT:
+Append this exact sentence to **Company Overview → Mission Statement** (verbatim):
 "Upcoming milestone: ${(formData as any).upcomingMilestone}".`
       : ""
 
@@ -805,10 +740,9 @@ Append this note verbatim as the LAST sentence of **Appendices → Management Te
 "${(formData as any).notes}".`
       : ""
 
-    // System prompt
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
-TASK: Generate a JSON object that matches exactly this shape (no extra keys or markdown):
+TASK: Generate a JSON object that matches exactly this shape (no extra keys or markdown in keys not stated as markdown-capable):
 {
   "initialInvestment": string,
   "fundingNeeded": string,
@@ -822,18 +756,20 @@ TASK: Generate a JSON object that matches exactly this shape (no extra keys or m
   "coverPage": { "logo": string },
   "executiveSummary": {
     "businessOverview": string,
-    "fundingRequirementsUsageOfFunds": string,
-    "pastMilestones": string,
-    "problemStatementSolution": string
+    "ourMission": string,
+    "funding": {
+      "p1": string,
+      "usageOfFunds": [ { "department": string, "allocationPercent": number, "amount": string, "howUsed": string } ],
+      "p2": string
+    },
+    "problemStatement": string,
+    "solution": string
   },
   "companyOverview": {
     "visionStatement": string,
     "missionStatement": string,
-    "companyHistoryBackground": string,
-    "foundingTeam": string,
     "legalStructureOwnership": string,
-    "coreValuesCulture": string,
-    "companyObjectives": string
+    "foundingTeam": string
   },
   "products": {
     "overview": string,
@@ -904,25 +840,31 @@ TASK: Generate a JSON object that matches exactly this shape (no extra keys or m
 RULES:
 1) Return STRICT JSON only (no markdown, no comments).
 2) Populate each string field at ~50–80 words (tight, specific; no fluff). Never leave any field blank.
-3) Products:
+3) Executive Summary (STRICT):
+   - Business Overview: exactly 2 paragraphs, 8 sentences each. No bullet lists. No markdown.
+   - Our Mission: exactly 1 paragraph, 2 sentences. No bullets. No markdown.
+   - Funding Requirements:
+     • P1: 4 sentences (ask + purpose). No bullets. No markdown.
+     • Table "Usage of Funds": rows with Department | Allocation % | Amount | How it will be used. Allocation % MUST sum to 100 exactly.
+     • P2: 4–6 sentences (growth narrative). No bullets. No markdown.
+   - Problem Statement: 1 paragraph, 8 sentences. No bullets. No markdown.
+   - Solution: 1 paragraph, 8 sentences. No bullets. No markdown.
+   - NEVER render “Key Highlights” or “Past Milestones” anywhere.
+   - If inputs are thin, expand neutrally (no fabricated metrics).
+4) Products:
    - "overview": ~60–90 words.
    - For each product (product1..product10): ~35–55 words total with 3–4 markdown bullets covering:
      • Core features • Integrations • Target users/industries • Primary use case OR quantified benefit
-4) Currency/amount fields must be strings with digits/commas only (no symbols).
-5) CRITICAL: The following MUST be non-empty:
-   appendices.glossary, appendices.managementTeamsResources, appendices.projectedFinancesTables.
-6) No emojis anywhere.
-7) Formatting exceptions (markdown allowed ONLY for these two):
-   - executiveSummary.businessOverview: paragraph, then **Key Highlights** (hyphen bullets), then **Our Mission** (hyphen bullets).
-   - executiveSummary.fundingRequirementsUsageOfFunds: one-line ask, then **Allocation of Funds** (hyphen bullets "<Item> — <Amount>"), then **Objective** (hyphen bullets).`
+5) Currency/amount strings must be digits/commas only (no symbols). UI may add currency symbols.
+6) No emojis anywhere.`
 
     const userPrompt = `Generate a comprehensive business plan using this form input.
 
-Make sure you populate the Executive Summary’s "fundingRequirementsUsageOfFunds".
+Make sure you populate the Executive Summary with the STRICT format above (no bullets/markdown in Exec Summary).
 ${marketingUserHints}
-${achievementsHint}
+${achievementsWeaveHint}
 ${financeFacts}
-${mileageHintPlaceholder() /* keeps TypeScript happy if removed later */}${milestoneHint}
+${mileageHintPlaceholder() /* keeps TS happy if removed later */}${milestoneHint}
 ${notesHint}
 
 FORM DATA:
@@ -930,16 +872,9 @@ ${JSON.stringify(formData, null, 2)}
 
 Be sure to include the full 'products' section with overview, ten product entries, USPs, development roadmap, and IP/regulatory status.`
 
-    // OpenAI client (v4 SDK)
     const MODEL = (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()
-    const HEAVY_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || MODEL
+    const client = new OpenAI({ apiKey: process.env.OPENAI_API_KEY, timeout: 120_000 })
 
-    const client = new OpenAI({
-      apiKey: process.env.OPENAI_API_KEY,
-      timeout: 120_000,
-    })
-
-    // ── create completion with retries ──
     let completion: Awaited<ReturnType<typeof client.chat.completions.create>>
     const maxRetries = 5
     let attempt = 0
@@ -994,7 +929,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
       if (start !== -1 && end !== -1 && end > start) raw = raw.slice(start, end + 1)
     }
 
-    let parsed: unknown
+    let parsed: any
     try {
       parsed = JSON.parse(raw)
     } catch (firstErr) {
@@ -1004,8 +939,14 @@ Be sure to include the full 'products' section with overview, ten product entrie
       parsed = JSON.parse(raw.slice(start, end + 1))
     }
 
-    // Validate with Zod
+    // Validate (robust defaults prevent "missing/undefined" crashes)
     const planObject = businessPlanSchema.parse(parsed) as any
+
+    // Coerce products.product1..product10 to strings (markdown bullets if needed)
+    for (let i = 1; i <= 10; i++) {
+      const key = `product${i}`
+      planObject.products[key] = coerceProductToString(planObject.products[key])
+    }
 
     // Ensure finance fields exist even if model skipped them
     planObject.initialInvestment ||= (formData as any).initialInvestment ?? ""
@@ -1018,7 +959,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
         : []
     }
 
-    // ✅ persist notes + upcomingMilestone from formData
+    // Persist notes + upcomingMilestone from formData
     planObject.notes ||= (formData as any).notes ?? ""
     planObject.upcomingMilestone ||= (formData as any).upcomingMilestone ?? ""
 
@@ -1036,7 +977,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
       "Projected finances overview: revenue, COGS, OpEx, EBITDA and cash-flow summaries for the next 12–24 months."
     )
 
-    // Logo guard so the UI doesn't render invalid src
+    // Logo guard
     if (!planObject.coverPage.logo || !/^https?:\/\//i.test(planObject.coverPage.logo)) {
       planObject.coverPage.logo = "/logo-placeholder.png"
     }
@@ -1044,13 +985,17 @@ Be sure to include the full 'products' section with overview, ten product entrie
     // Normalize financials to enforce totals & alignment (before balancing)
     normalizeFinancials(planObject, formData)
 
-    // Enforce structured Business Overview (intro + highlights + mission)
-    structureExecBusinessOverview(planObject, formData)
+    // 🚦 Validate Usage of Funds % total = 100 (hard requirement)
+    const ufRows: UsageOfFundsRow[] = planObject?.executiveSummary?.funding?.usageOfFunds || []
+    const v = validateUsageOfFunds(ufRows)
+    if (!v.ok) {
+      return { success: false, error: `Funding table invalid: ${v.error} (total=${v.total}%)` }
+    }
 
-    // Pick a working model for balancing
+    // Pick model for balancing (Exec Summary excluded to keep sentence counts)
     const BALANCE = (process.env.BALANCE_SECTIONS ?? "1") === "1"
-    let BALANCER_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()
-    if (BALANCER_MODEL !== (process.env.OPENAI_MODEL ?? "gpt-4o-mini").trim()) {
+    let BALANCER_MODEL = ((process.env.OPENAI_HEAVY_MODEL ?? "").trim()) || MODEL
+    if (BALANCER_MODEL !== MODEL) {
       try {
         await client.chat.completions.create({
           model: BALANCER_MODEL,
@@ -1064,7 +1009,6 @@ Be sure to include the full 'products' section with overview, ten product entrie
       }
     }
 
-    // ⬇️ CALL the top-level balancer BEFORE enforceInclusions
     await balancePlanSections({
       client,
       model: BALANCER_MODEL,
@@ -1073,7 +1017,7 @@ Be sure to include the full 'products' section with overview, ten product entrie
       enable: BALANCE,
     })
 
-    // ✅ Guarantee required insertions AFTER balancing so they won’t get removed
+    // Required insertions AFTER balancing
     enforceInclusions(planObject, formData)
 
     // Auth

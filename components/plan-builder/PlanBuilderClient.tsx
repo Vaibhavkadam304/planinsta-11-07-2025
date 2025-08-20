@@ -1,6 +1,6 @@
 "use client"
 
-import { useState, useEffect } from "react"
+import { useState, useEffect, useRef } from "react"
 import { PlanBuilderTopBar } from "@/components/plan-builder/top-bar"
 import { QuizInterface } from "@/components/plan-builder/quiz-interface"
 import { GenerationScreen } from "@/components/plan-builder/generation-screen"
@@ -8,7 +8,6 @@ import { PlanOutput } from "@/components/plan-builder/plan-output"
 import { EditSectionModal } from "@/components/plan-builder/edit-section-modal"
 import { UnsavedChangesModal } from "@/components/plan-builder/unsaved-changes-modal"
 import { useToast } from "@/hooks/use-toast"
-import { generateBusinessPlan, GenerateBusinessPlanResult } from "@/app/actions/generate-plan"
 import { useSession } from "@supabase/auth-helpers-react"
 import { useRouter, useSearchParams } from "next/navigation"
 import * as htmlDocx from "html-docx-js/dist/html-docx"
@@ -28,7 +27,6 @@ import {
 } from "docx"
 
 import ReactMarkdown from "react-markdown"
-
 
 /* -------------------------------------------------------------------------- */
 /*                               Local Types                                  */
@@ -89,6 +87,20 @@ export interface BusinessPlanData {
 
   // Extras
   notes: string
+
+  // Company Legal & Ownership (new)
+  incorporationCountry: string
+  incorporationState: string
+  ownership: Array<{ name: string; role: string; ownershipPercent?: number }>
+  founders: Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+}
+
+// New row type for the Usage of Funds table
+export interface UsageOfFundsRow {
+  department: string
+  allocationPercent: number
+  amount: string
+  howUsed: string
 }
 
 export interface GeneratedPlan {
@@ -96,19 +108,22 @@ export interface GeneratedPlan {
     logo: string
   }
   executiveSummary: {
+    // NEW strict structure for the first main section
     businessOverview: string
-    fundingRequirementsUsageOfFunds: string
-    pastMilestones: string
-    problemStatementSolution: string
+    ourMission: string
+    funding: {
+      p1: string
+      usageOfFunds: UsageOfFundsRow[]
+      p2: string
+    }
+    problemStatement: string
+    solution: string
   }
   companyOverview: {
     visionStatement: string
     missionStatement: string
-    companyHistoryBackground: string
-    foundingTeam: string
     legalStructureOwnership: string
-    coreValuesCulture: string
-    companyObjectives: string
+    foundingTeam: string
   }
   products: {
     overview: string
@@ -209,6 +224,13 @@ export interface GeneratedPlan {
 
 type PlanBuilderStage = "quiz" | "generating" | "output"
 
+type GenerateBusinessPlanResult = {
+  success: boolean;
+  planId?: string;
+  plan?: GeneratedPlan;
+  error?: string;
+};
+
 /* -------------------------------------------------------------------------- */
 /*                                Component                                   */
 /* -------------------------------------------------------------------------- */
@@ -219,6 +241,8 @@ export default function PlanBuilderClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
   const { toast } = useToast()
+  const inflightRef = useRef(false)
+  const autoRetriedRef = useRef(false)   // ← one-shot auto-retry after 429
 
   const [hasRedirectedForPayment, setHasRedirectedForPayment] = useState(false)
   const [planId,             setPlanId]            = useState<string | null>(null)
@@ -260,6 +284,10 @@ export default function PlanBuilderClient() {
     achievements: ["", ""],
     upcomingMilestone: "",
     notes: "",
+    incorporationCountry: "",
+    incorporationState: "",
+    ownership: [{ name: "", role: "", ownershipPercent: undefined }],
+    founders: [{ name: "", title: "", bio: "", linkedinUrl: "" }],
   })
   const [generatedPlan,      setGeneratedPlan]     = useState<GeneratedPlan | null>(null)
   const [editingSection,     setEditingSection]    = useState<string | null>(null)
@@ -268,6 +296,10 @@ export default function PlanBuilderClient() {
   const [manualEditedContent, setManualEditedContent] = useState<string>("")
   const [showUnsavedModal,   setShowUnsavedModal]  = useState(false)
   const [hasUnsavedChanges,  setHasUnsavedChanges] = useState(false)
+
+  // NEW: defer generation until session is hydrated after payment return
+  const [shouldAutoGenerate, setShouldAutoGenerate] = useState(false)
+  const postPayDataRef = useRef<BusinessPlanData | null>(null)
 
   // ───── PAYMENT‐RETURN EFFECT ─────
   useEffect(() => {
@@ -291,11 +323,23 @@ export default function PlanBuilderClient() {
 
       // 1) Restore UI state
       setPlanData(normalized);
-      // 2) Kick off generation with the right data
-      _reallyGeneratePlan(normalized);
+      // 2) Defer generation until session is ready
+      postPayDataRef.current = normalized;
+      setShouldAutoGenerate(true);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchParams, hasRedirectedForPayment]);
+
+  // After we know the session is hydrated, kick off generation once
+  useEffect(() => {
+    if (!shouldAutoGenerate) return
+    const uid = (session as any)?.user?.id
+    if (!uid) return // wait for session to be available
+
+    _reallyGeneratePlan(postPayDataRef.current ?? planData)
+    setShouldAutoGenerate(false)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [shouldAutoGenerate, session])
 
   // ─── SESSION GUARD EFFECT ───
   useEffect(() => {
@@ -307,35 +351,77 @@ export default function PlanBuilderClient() {
 
   // ─────── HELPERS & HANDLERS ───────
   async function _reallyGeneratePlan(overrideData?: BusinessPlanData) {
-    const dataToUse = overrideData ?? planData
+    if (inflightRef.current) return;
+    inflightRef.current = true;
+    const dataToUse = overrideData ?? planData;
 
-    setStage("generating")
+    setStage("generating");
     try {
-      console.log("▶️ Sending planData to server action:", dataToUse)
-      const result = await generateBusinessPlan(dataToUse)
+      const userId = (session as any)?.user?.id ?? "";
+      const res = await fetch("/api/generate-plan", {
+        method: "POST",
+        credentials: "include",                 // ✅ ensure auth cookies are sent
+        headers: {
+          "Content-Type": "application/json",
+          ...(userId ? { "x-user-id": userId } : {}),
+        },
+        body: JSON.stringify(dataToUse),
+      });
 
-      if (!result.success) {
-        throw new Error(result.error)
+      if (!res.ok) {
+        if (res.status === 429) {
+          const retry = parseInt(res.headers.get("Retry-After") || "19", 10);
+          const secondsLeft = Number.isFinite(retry)
+            ? Math.max(0, Math.min(60, retry))
+            : 19;
+
+          // show toast only once
+          toast({
+            variant: "destructive",
+            title: "Slow down a bit",
+            description: `You’re generating too quickly — retrying automatically in ~${secondsLeft}s.`,
+          });
+
+          // schedule ONE auto-retry after cooldown
+          if (!autoRetriedRef.current) {
+            autoRetriedRef.current = true;
+            setTimeout(() => {
+              inflightRef.current = false;      // allow next call
+              _reallyGeneratePlan(dataToUse);   // try again once
+            }, secondsLeft * 1000);
+          } else {
+            inflightRef.current = false;
+          }
+          return;
+        } else {
+          const err = await res.json().catch(() => ({}));
+          throw new Error(err?.error || `Request failed (${res.status})`);
+        }
       }
 
-      setPlanId(result.planId)
-      setGeneratedPlan(result.plan)
-      console.log("📝 GeneratedPlan JSON:", JSON.stringify(result.plan, null, 2))
 
-      setStage("output")
-      setHasUnsavedChanges(false)
+      const result: GenerateBusinessPlanResult = await res.json();
+      if (!result.success) throw new Error(result.error || "Failed to generate plan");
+
+      setPlanId(result.planId!);
+      setGeneratedPlan(result.plan!);
+      setStage("output");
+      setHasUnsavedChanges(false);
+      inflightRef.current = false;
+
       toast({
         title: "Plan Generated Successfully!",
         description: "Your business plan is ready for review and download.",
-      })
+      });
     } catch (err: any) {
-      console.error("❌ generateBusinessPlan failed:", err)
-      setStage("quiz")
+      console.error("❌ generate plan failed:", err);
+      inflightRef.current = false;
+      setStage("quiz");
       toast({
         variant: "destructive",
         title: "Plan Generation Failed",
         description: err.message,
-      })
+      });
     }
   }
 
@@ -350,21 +436,16 @@ export default function PlanBuilderClient() {
 
   // ←────────────────── ADD YOUR SAVE HANDLER ───────────────────
   async function handleSavePlan() {
-    if (!planId) return toast({ variant: "destructive", title: "No plan to save." });
-
+    if (!planId) return
     const res = await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
+      credentials: "include",                 // ✅ send cookies
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(planData),
     });
-
     const { success, error } = await res.json();
-    if (success) {
-      toast({ title: "Plan updated!" });
-      setHasUnsavedChanges(false);
-    } else {
-      toast({ variant: "destructive", title: "Save failed", description: error });
-    }
+    if (!success) return
+    setHasUnsavedChanges(false);
   }
 
   function handleDataChange(newData: Partial<BusinessPlanData>) {
@@ -402,23 +483,12 @@ export default function PlanBuilderClient() {
 
     const res = await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
+      credentials: "include",               // ✅ send cookies
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPlan),
     })
-    const { success, error } = await res.json()
-
-    if (!success) {
-      toast({
-        variant: "destructive",
-        title: "Save failed",
-        description: error || "Unable to persist your changes.",
-      })
-    } else {
-      toast({
-        title: "Section Updated",
-        description: "Your edits have been saved to the database.",
-      })
-    }
+    const { success } = await res.json()
+    if (!success) return
   }
 
   // Helper to Upper-case the first letter of each word
@@ -435,6 +505,7 @@ export default function PlanBuilderClient() {
     setManualEditedContent("")
     await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
+      credentials: "include",               // ✅ send cookies
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPlan),
     })
@@ -471,6 +542,7 @@ export default function PlanBuilderClient() {
     }))
     await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
+      credentials: "include",               // ✅ send cookies
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         [sectionKey]: {

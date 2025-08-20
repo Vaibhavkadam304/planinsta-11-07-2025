@@ -26,7 +26,7 @@ interface Question {
   id: string
   title: string
   description?: string
-  type: "text" | "textarea" | "select" | "multiselect" | "switch" | "list" | "keyvalue" | "products"
+  type: "text" | "textarea" | "select" | "multiselect" | "switch" | "list" | "keyvalue" | "products" | "owners" | "founders"
   field: keyof BusinessPlanData
   options?: string[]
   required?: boolean
@@ -213,7 +213,8 @@ const sections: Section[] = [
         description: "The legal entity type for your business",
         type: "select",
         field: "legalStructure",
-        options: ["Sole Proprietorship", "Partnership", "LLC", "Corporation", "Private Limited"],
+        // (c) updated options to match spec
+        options: ["Sole Proprietorship", "Partnership", "LLP", "Private Limited", "Other"],
       },
       {
         id: "team-size",
@@ -230,6 +231,55 @@ const sections: Section[] = [
         type: "text",
         field: "founderRole",
         placeholder: "e.g., CEO, CTO, Founder",
+      },
+    ],
+  },
+  // (b) New dedicated section: Legal Structure & Ownership
+  {
+    id: "company-legal-ownership",
+    title: "Legal Structure & Ownership",
+    description: "Capture your registration details, owners, and founders",
+    questions: [
+      {
+        id: "legal-structure-new",
+        title: "What’s your legal structure?",
+        description: "Select the legal entity type",
+        type: "select",
+        field: "legalStructure",
+        options: ["Sole Proprietorship", "Partnership", "LLP", "Private Limited", "Other"],
+        required: true,
+      },
+      {
+        id: "incorporation-country",
+        title: "Country of Incorporation",
+        description: "Where is the company legally registered?",
+        type: "text",
+        field: "incorporationCountry",
+        placeholder: "e.g., India",
+        required: true,
+      },
+      {
+        id: "incorporation-state",
+        title: "State/Province of Incorporation",
+        description: "The state or province of registration",
+        type: "text",
+        field: "incorporationState",
+        placeholder: "e.g., Maharashtra",
+        required: true,
+      },
+      {
+        id: "ownership-table",
+        title: "Ownership",
+        description: "Add owners with their role and (optionally) equity %",
+        type: "owners",
+        field: "ownership",
+      },
+      {
+        id: "founding-team-list",
+        title: "Founding Team",
+        description: "Add founders (Name, Title, optional Bio, optional LinkedIn URL)",
+        type: "founders",
+        field: "founders",
       },
     ],
   },
@@ -388,6 +438,45 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
     newValue[index][itemField] = value
     onChange({ [field]: newValue })
   }
+
+  // (e) Owners & Founders helpers
+  const addOwnerRow = () => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    onChange({ ownership: [...owners, { name: "", role: "", ownershipPercent: undefined }] })
+  }
+  const removeOwnerRow = (index: number) => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    onChange({ ownership: owners.filter((_, i) => i !== index) })
+  }
+  const updateOwnerRow = (index: number, field: "name" | "role" | "ownershipPercent", value: string) => {
+    const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+    const newOwners = [...owners]
+    newOwners[index] = {
+      ...newOwners[index],
+      [field]: field === "ownershipPercent" ? (value === "" ? undefined : Number(value)) : value,
+    }
+    onChange({ ownership: newOwners })
+  }
+
+  const addFounderRow = () => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    onChange({ founders: [...founders, { name: "", title: "", bio: "", linkedinUrl: "" }] })
+  }
+  const removeFounderRow = (index: number) => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    onChange({ founders: founders.filter((_, i) => i !== index) })
+  }
+  const updateFounderRow = (
+    index: number,
+    field: "name" | "title" | "bio" | "linkedinUrl",
+    value: string
+  ) => {
+    const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+    const newFounders = [...founders]
+    newFounders[index] = { ...newFounders[index], [field]: value }
+    onChange({ founders: newFounders })
+  }
+
   const toggleMultiSelectOption = (field: keyof BusinessPlanData, option: string) => {
     const currentValue = data[field] as string[]
     const newValue = currentValue.includes(option)
@@ -657,6 +746,100 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
             <Button type="button" variant="outline" onClick={addProduct} className="rounded-xl">
               <Plus className="h-4 w-4 mr-2" />
               Add another product
+            </Button>
+          </div>
+        )
+      }
+
+      // (d) New renderers for owners & founders
+      case "owners": {
+        const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
+        const totalPct = owners.reduce((s, o) => s + (Number(o.ownershipPercent) || 0), 0)
+        const showSumError = owners.some(o => typeof o.ownershipPercent === "number") && Math.abs(totalPct - 100) > 0.5
+
+        return (
+          <div className="space-y-3">
+            {owners.map((o, idx) => (
+              <div key={idx} className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                <Input
+                  className="md:col-span-4 rounded-2xl h-12"
+                  placeholder="Owner name"
+                  value={o.name}
+                  onChange={(e) => updateOwnerRow(idx, "name", e.target.value)}
+                />
+                <Input
+                  className="md:col-span-5 rounded-2xl h-12"
+                  placeholder="Role / Title"
+                  value={o.role}
+                  onChange={(e) => updateOwnerRow(idx, "role", e.target.value)}
+                />
+                <Input
+                  className="md:col-span-2 rounded-2xl h-12"
+                  placeholder="%"
+                  value={o.ownershipPercent ?? ""}
+                  onChange={(e) => updateOwnerRow(idx, "ownershipPercent", e.target.value)}
+                />
+                {owners.length > 1 && (
+                  <Button variant="outline" size="sm" className="md:col-span-1 h-12 rounded-xl" onClick={() => removeOwnerRow(idx)}>
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <div className="flex items-center gap-3">
+              <Button variant="outline" size="sm" className="rounded-xl" onClick={addOwnerRow}>
+                <Plus className="h-4 w-4 mr-1" /> Add Owner
+              </Button>
+              <div className={`text-sm ${showSumError ? "text-red-600" : "text-gray-500"}`}>
+                {showSumError ? `Ownership percentages must total 100%. Current total: ${totalPct}%` :
+                  `If you provide equity %, the total must equal 100%. Current total: ${totalPct || 0}%`}
+              </div>
+            </div>
+          </div>
+        )
+      }
+
+      case "founders": {
+        const founders = (data.founders || []) as Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+        return (
+          <div className="space-y-3">
+            {founders.map((f, idx) => (
+              <div key={idx} className="space-y-2 p-3 border rounded-xl">
+                <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-center">
+                  <Input
+                    className="md:col-span-4 rounded-2xl h-12"
+                    placeholder="Founder name"
+                    value={f.name}
+                    onChange={(e) => updateFounderRow(idx, "name", e.target.value)}
+                  />
+                  <Input
+                    className="md:col-span-4 rounded-2xl h-12"
+                    placeholder="Title (e.g., Co-Founder & CTO)"
+                    value={f.title}
+                    onChange={(e) => updateFounderRow(idx, "title", e.target.value)}
+                  />
+                  <Input
+                    className="md:col-span-4 rounded-2xl h-12"
+                    placeholder="LinkedIn URL (optional)"
+                    value={f.linkedinUrl || ""}
+                    onChange={(e) => updateFounderRow(idx, "linkedinUrl", e.target.value)}
+                  />
+                </div>
+                <Textarea
+                  className="w-full rounded-2xl"
+                  placeholder="Short bio (optional)"
+                  value={f.bio || ""}
+                  onChange={(e) => updateFounderRow(idx, "bio", e.target.value)}
+                />
+                {founders.length > 1 && (
+                  <Button variant="outline" size="sm" className="rounded-xl" onClick={() => removeFounderRow(idx)}>
+                    <Minus className="h-4 w-4" />
+                  </Button>
+                )}
+              </div>
+            ))}
+            <Button variant="outline" size="sm" className="rounded-xl" onClick={addFounderRow}>
+              <Plus className="h-4 w-4 mr-1" /> Add Founder
             </Button>
           </div>
         )

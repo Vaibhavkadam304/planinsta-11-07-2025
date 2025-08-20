@@ -41,6 +41,8 @@ const makeSafe = (obj: any) => {
     "opEx",
     "projectedPnl",
     "cashFlowRunwayAnalysis",
+    // NEW: ensure funding.usageOfFunds is always an array
+    "usageOfFunds",
   ]);
   const SECTION_KEYS = new Set([
     "executiveSummary",
@@ -53,6 +55,8 @@ const makeSafe = (obj: any) => {
     "financialPlan",
     "riskAnalysisMitigation",
     "appendices",
+    // NEW: treat nested funding as a sub-section
+    "funding",
   ]);
 
   const wrap = (v: any): any => {
@@ -140,11 +144,11 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
       const t = line.replace(/^- +/, "");
       out.push(
         new Paragraph({
-          children: runsFromInlineMarkdown(t), // ← FIX: keep the runs directly
-          style: "BulletText",                 // use a real bullet style (defined below)
+          children: runsFromInlineMarkdown(t),
+          style: "BulletText",
           bullet: {
             level: 0,
-            reference: "SmallCircle"
+            reference: "SmallCircle",
           },
         })
       );
@@ -212,8 +216,28 @@ export async function exportBusinessPlanDocx(
   const Spacer = () =>
     new Paragraph({ text: "", spacing: { after: 200 } });
 
+  // Compose Mission text with optional upcoming milestone (from quiz)
+  const missionWithMilestone =
+    (companyOverview.missionStatement || "") +
+    (planData?.upcomingMilestone
+      ? `\n\nUpcoming milestone: ${planData.upcomingMilestone}`
+      : "");
+
+  // Build Usage of Funds table rows from exec summary funding
+  const usageRows: Array<{ department: string; allocationPercent: string; amount: string; howUsed: string }> =
+    Array.isArray(executiveSummary?.funding?.usageOfFunds)
+      ? executiveSummary.funding.usageOfFunds.map((r: any) => ({
+          department: String(r?.department ?? ""),
+          allocationPercent: `${Number(r?.allocationPercent ?? 0)}%`,
+          amount: String(r?.amount ?? ""),
+          howUsed: String(r?.howUsed ?? ""),
+        }))
+      : [];
+
+  // Sum of allocation for a total row (optional)
+  const totalPct = usageRows.reduce((a, r) => a + (parseFloat(String(r.allocationPercent).replace("%", "")) || 0), 0);
+
   const doc = new Document({
-    // features: { updateFields: true },
     styles: {
       paragraphStyles: [
         {
@@ -274,7 +298,7 @@ export async function exportBusinessPlanDocx(
           paragraph: { spacing: { line: 276, after: 100 }, alignment: AlignmentType.JUSTIFIED },
         },
 
-        // NEW: bullet paragraph style (used by md() for "- ..." lines)
+        // Bullet paragraph style (used by md() for "- ..." lines)
         {
           id: "BulletText",
           name: "Bullet Text",
@@ -282,7 +306,7 @@ export async function exportBusinessPlanDocx(
           next: "BodyText",
           quickFormat: true,
           paragraph: {
-            indent: { left: 720 }, // ~0.5 inch
+            indent: { left: 720 },
             spacing: { after: 60 },
           },
         },
@@ -308,15 +332,15 @@ export async function exportBusinessPlanDocx(
     numbering: {
       config: [
         {
-          reference: "SmallCircle",              // ← use this name below
+          reference: "SmallCircle",
           levels: [
             {
               level: 0,
               format: "bullet",
-              text: "◦",                         // small circle glyph
+              text: "◦",
               alignment: AlignmentType.LEFT,
               style: {
-                run: { size: 18 },              // smaller than BodyText (22)
+                run: { size: 18 },
                 paragraph: { indent: { left: 720 } },
               },
             },
@@ -339,7 +363,6 @@ export async function exportBusinessPlanDocx(
           // TOC (own page)
           new Paragraph({ text: "Table of Contents", style: "TitleStyle", pageBreakBefore: true }),
           new TableOfContents("", {
-            // hyperlink: true,
             headingStyleRange: "1-2",
           }),
 
@@ -349,14 +372,71 @@ export async function exportBusinessPlanDocx(
           H2("Business Overview"),
           ...md(executiveSummary.businessOverview, { bodyStyle: "BodyText" }),
 
+          H2("Our Mission"),
+          ...md(executiveSummary.ourMission, { bodyStyle: "BodyText" }),
+
           H2("Funding Requirements & Usage of Funds"),
-          ...md(executiveSummary.fundingRequirementsUsageOfFunds, { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.funding?.p1 || "", { bodyStyle: "BodyText" }),
+          // Table: Usage of Funds
+          new Table({
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
+            rows: [
+              new TableRow({
+                children: [
+                  new TableCell({
+                    width: { size: 2500, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Department", style: "BodyText" })],
+                  }),
+                  new TableCell({
+                    width: { size: 2000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Allocation %", style: "BodyText" })],
+                  }),
+                  new TableCell({
+                    width: { size: 2500, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Amount", style: "BodyText" })],
+                  }),
+                  new TableCell({
+                    width: { size: 4000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "How it will be used", style: "BodyText" })],
+                  }),
+                ],
+              }),
+              ...usageRows.map((r) =>
+                new TableRow({
+                  children: [
+                    new TableCell({ children: [new Paragraph({ text: r.department, style: "BodyText" })] }),
+                    new TableCell({ children: [new Paragraph({ text: r.allocationPercent, style: "BodyText" })] }),
+                    new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
+                    new TableCell({ children: [new Paragraph({ text: r.howUsed, style: "BodyText" })] }),
+                  ],
+                })
+              ),
+              ...(usageRows.length
+                ? [
+                    new TableRow({
+                      children: [
+                        new TableCell({ children: [new Paragraph({ text: "Total", style: "BodyText" })] }),
+                        new TableCell({ children: [new Paragraph({ text: `${Math.round(totalPct)}%`, style: "BodyText" })] }),
+                        new TableCell({ children: [new Paragraph({ text: "", style: "BodyText" })] }),
+                        new TableCell({ children: [new Paragraph({ text: "", style: "BodyText" })] }),
+                      ],
+                    }),
+                  ]
+                : []),
+            ],
+          }),
+          ...md(executiveSummary.funding?.p2 || "", { bodyStyle: "BodyText" }),
 
-          H2("Past Milestones"),
-          new Paragraph({ text: executiveSummary.pastMilestones, style: "BodyText" }),
+          H2("Problem Statement"),
+          ...md(executiveSummary.problemStatement, { bodyStyle: "BodyText" }),
 
-          H2("Problem Statement & Solution"),
-          new Paragraph({ text: executiveSummary.problemStatementSolution, style: "BodyText" }),
+          H2("Solution"),
+          ...md(executiveSummary.solution, { bodyStyle: "BodyText" }),
 
           // 2. Company Overview
           H1("Company Overview"),
@@ -364,17 +444,11 @@ export async function exportBusinessPlanDocx(
           H2("Vision Statement"),
           new Paragraph({ text: companyOverview.visionStatement, style: "BodyText" }),
           H2("Mission Statement"),
-          new Paragraph({ text: companyOverview.missionStatement, style: "BodyText" }),
-          H2("History & Background"),
-          new Paragraph({ text: companyOverview.companyHistoryBackground, style: "BodyText" }),
+          ...md(missionWithMilestone, { bodyStyle: "BodyText" }),
           H2("Founding Team"),
           new Paragraph({ text: companyOverview.foundingTeam, style: "BodyText" }),
           H2("Legal Structure & Ownership"),
           new Paragraph({ text: companyOverview.legalStructureOwnership, style: "BodyText" }),
-          H2("Core Values & Culture"),
-          new Paragraph({ text: companyOverview.coreValuesCulture, style: "BodyText" }),
-          H2("Company Objectives"),
-          new Paragraph({ text: companyOverview.companyObjectives, style: "BodyText" }),
 
           // 3. Products
           H1("Products"),

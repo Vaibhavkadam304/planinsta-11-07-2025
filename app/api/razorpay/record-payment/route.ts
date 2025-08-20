@@ -225,7 +225,7 @@ export async function POST(req: NextRequest) {
         );
       } else {
         const html = `
-          <h2>New purchase captured</h2>
+          <h2>New purchase captured on PlanInsta</h2>
           <p><strong>User:</strong> ${displayName ? `${displayName} — ` : ""}${userEmail}</p>
           <p><strong>User ID:</strong> ${user.id}</p>
           <hr />
@@ -252,7 +252,7 @@ export async function POST(req: NextRequest) {
         await transporter.sendMail({
           from: process.env.EMAIL_FROM!,
           to: toAddress,
-          subject: `New payment (${statusNorm})${shortPid ? ` — #${shortPid}` : ""} — ${userEmail}`,
+          subject: `PlanInsta New payment (${statusNorm})${shortPid ? ` — #${shortPid}` : ""} — ${userEmail}`,
           html,
           text,
         });

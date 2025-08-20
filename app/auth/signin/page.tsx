@@ -56,34 +56,66 @@ export default function SignInPage() {
     e.preventDefault()
     if (!validateForm()) return
 
-    setIsLoading(true)
-    setErrors({})
-
-    // Clear any stale session before attempting a new login
-    await supabase.auth.signOut()
-
-    const { error } = await supabase.auth.signInWithPassword({
-      email: formData.email.trim(),
-      password: formData.password,
-    })
-
-    setIsLoading(false)
-
-    if (error) {
+    // If offline, show a single toast and stop here.
+    if (typeof navigator !== "undefined" && !navigator.onLine) {
       toast({
-        title: "Error signing in",
-        description: error.message,
         variant: "destructive",
+        title: "No internet connection",
+        description: "Please reconnect and try again.",
       })
       return
     }
 
-    toast({
-      title: "Welcome back!",
-      description: "You have been successfully signed in.",
-    })
-    router.replace("/dashboard")
+    setIsLoading(true)
+    setErrors({})
+
+    try {
+      // Don’t let this block sign-in if it fails while offline
+      try {
+        await supabase.auth.signOut()
+      } catch {
+        /* ignore */
+      }
+
+      const { error } = await supabase.auth.signInWithPassword({
+        email: formData.email.trim(),
+        password: formData.password,
+      })
+
+      if (error) {
+        toast({
+          title: "Error signing in",
+          description: error.message,
+          variant: "destructive",
+        })
+        return
+      }
+
+      toast({
+        title: "Welcome back!",
+        description: "You have been successfully signed in.",
+      })
+      router.replace("/dashboard")
+    } catch (err: any) {
+      const msg = (err?.message || "").toLowerCase()
+      const looksNetwork =
+        msg.includes("failed to fetch") ||
+        msg.includes("enotfound") ||
+        msg.includes("network") ||
+        msg.includes("timeout")
+
+      toast({
+        variant: "destructive",
+        title: looksNetwork ? "Network error" : "Unexpected error",
+        description: looksNetwork
+          ? "Can’t reach the server. Please check your connection and try again."
+          : err?.message || "Something went wrong.",
+      })
+    } finally {
+      setIsLoading(false)
+    }
   }
+
 
 
   return (
