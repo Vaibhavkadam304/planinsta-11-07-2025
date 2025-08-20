@@ -20,6 +20,7 @@ import {
 import Link from "next/link"
 // ✅ use types from PlanBuilderClient
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
+import { TypewriterHTML } from "@/components/ui/TypewriterHTML"
 
 /* -------------------------------------------------------------------------- */
 /*                                       Helpers                              */
@@ -44,6 +45,12 @@ const formatAmount = (v?: string, locale: string = "en-IN") => {
   const n = Number(s.replace(/[^\d.-]/g, ""))
   return Number.isFinite(n) ? new Intl.NumberFormat(locale).format(n) : s
 }
+
+const esc = (s?: string) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
 
 // Force “two paragraphs” for Business Overview
 const twoParasSmart = (input?: string): [string, string] => {

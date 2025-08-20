@@ -162,6 +162,28 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
   return out;
 }
 
+// ──────────────────────────────────────────────────────────────
+// Deterministic label helpers (for legal structure text, etc.)
+// ──────────────────────────────────────────────────────────────
+const titleCase = (s: string) =>
+  (s || "")
+    .trim()
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => (w ? w[0].toUpperCase() + w.slice(1) : ""))
+    .join(" ");
+
+const labelizeLegal = (s?: string) => {
+  const t = (s || "").trim().toLowerCase();
+  const map: Record<string, string> = {
+    "sole proprietorship": "Sole Proprietorship",
+    "private limited": "Private Limited Company",
+    "pvt ltd": "Private Limited Company",
+    "llp": "Limited Liability Partnership (LLP)",
+  };
+  return map[t] || titleCase(t);
+};
+
 export async function exportBusinessPlanDocx(
   planData: Partial<BusinessPlanData> = {},
   generatedPlan: GeneratedPlan | string | Record<string, any>
@@ -236,6 +258,43 @@ export async function exportBusinessPlanDocx(
 
   // Sum of allocation for a total row (optional)
   const totalPct = usageRows.reduce((a, r) => a + (parseFloat(String(r.allocationPercent).replace("%", "")) || 0), 0);
+
+  // ──────────────────────────────────────────────────────────────
+  // NEW: Deterministic content for Legal & Founding Team from planData
+  // ──────────────────────────────────────────────────────────────
+  const owners = Array.isArray(planData.ownership) ? planData.ownership : [];
+  const ownershipLines = owners
+    .filter((o) => o && (o.name || o.role || o.ownershipPercent != null))
+    .map(
+      (o) =>
+        `- ${o.name || "Owner"} — ${o.role || "Role"}${
+          o.ownershipPercent != null ? ` — ${o.ownershipPercent}%` : ""
+        }`
+    )
+    .join("\n");
+
+  const legalMd = [
+    `- **Legal Structure:** ${labelizeLegal((planData as any).legalStructure) || "Not specified"}`,
+    `- **Country/State of Incorporation:** ${planData.incorporationCountry || "Not specified"} / ${planData.incorporationState || "Not specified"}`,
+    ownershipLines ? "- **Ownership & Founders:**" : "",
+    ownershipLines,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const foundersArr = Array.isArray(planData.founders) ? planData.founders : [];
+  const foundingMd =
+    foundersArr.length > 0
+      ? foundersArr
+          .filter((f) => f && (f.name || f.title || f.linkedinUrl || f.bio))
+          .map((f) => {
+            const line = `- ${f.name || "Founder"} — ${f.title || "Title"}${
+              f.linkedinUrl ? ` — ${f.linkedinUrl}` : ""
+            }`;
+            return f.bio ? `${line}\n${f.bio}` : line;
+          })
+          .join("\n")
+      : "- Not specified";
 
   const doc = new Document({
     styles: {
@@ -445,10 +504,13 @@ export async function exportBusinessPlanDocx(
           new Paragraph({ text: companyOverview.visionStatement, style: "BodyText" }),
           H2("Mission Statement"),
           ...md(missionWithMilestone, { bodyStyle: "BodyText" }),
-          H2("Founding Team"),
-          new Paragraph({ text: companyOverview.foundingTeam, style: "BodyText" }),
+
+          // ⬇️ UPDATED: Use deterministic sections from planData ⬇️
           H2("Legal Structure & Ownership"),
-          new Paragraph({ text: companyOverview.legalStructureOwnership, style: "BodyText" }),
+          ...md(legalMd, { bodyStyle: "BodyText" }),
+          H2("Founding Team"),
+          ...md(foundingMd, { bodyStyle: "BodyText" }),
+          // ⬆️ UPDATED ⬆️
 
           // 3. Products
           H1("Products"),

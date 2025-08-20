@@ -5,7 +5,6 @@ import ReactMarkdown from "react-markdown"
 import { Button } from "@/components/ui/button"
 import { Card, CardHeader, CardTitle, CardContent } from "@/components/ui/card"
 import { Separator } from "@/components/ui/separator"
-import { TypewriterParagraph } from "@/components/ui/typewriter"
 import {
   Download,
   Edit3,
@@ -19,14 +18,13 @@ import {
   FileText as AppendixIcon,
 } from "lucide-react"
 import Link from "next/link"
-// ✅ use types from PlanBuilderClient
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
+import { TypewriterHTML } from "@/components/ui/TypewriterHTML"
 
 /* -------------------------------------------------------------------------- */
-/*                               Helpers (NEW)                                */
+/*                                       Helpers                              */
 /* -------------------------------------------------------------------------- */
 
-// Pretty label for legal structure
 const LEGAL_LABELS: Record<string, string> = {
   "sole proprietorship": "Sole Proprietorship",
   "sole-proprietorship": "Sole Proprietorship",
@@ -41,59 +39,318 @@ const LEGAL_LABELS: Record<string, string> = {
 const labelize = (v?: string) =>
   (v ? LEGAL_LABELS[v.trim().toLowerCase()] : "") || (v || "Not specified")
 
-const pct = (n?: number) =>
-  typeof n === "number" && Number.isFinite(n) ? `${n}%` : undefined
-
-// INR grouping helper (keeps original if not plain digits/commas)
-const formatINR = (v?: string) => {
-  const s = String(v ?? "").trim()
-  const numeric = Number(s.replace(/[^\d.-]/g, ""))
-  if (Number.isFinite(numeric)) return numeric.toLocaleString("en-IN")
-  return s
-}
-
-// Generic formatter; default Indian grouping. Switch to "en-US" if you prefer.
 const formatAmount = (v?: string, locale: string = "en-IN") => {
   const s = String(v ?? "").trim()
   const n = Number(s.replace(/[^\d.-]/g, ""))
   return Number.isFinite(n) ? new Intl.NumberFormat(locale).format(n) : s
 }
 
-// Ensures Business Overview renders as exactly 2 paragraphs (8 sentences each)
-const ensureTwoParagraphsBy8 = (text?: string) => {
-  const t = String(text ?? "").replace(/\r\n/g, "\n").trim()
-  if (!t) return t
+const esc = (s?: string) =>
+  String(s ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
 
-  // If there's already a blank line, keep as-is.
-  if (/\n\n/.test(t)) return t
-
-  // Robust sentence split (keeps punctuation).
-  const sentences = t.match(/[^.!?]+[.!?]+(\s|$)/g)?.map(s => s.trim()) ?? []
-  if (sentences.length >= 8) {
-    const p1 = sentences.slice(0, 8).join(" ").trim()
-    const p2 = sentences.slice(8).join(" ").trim()
-    // Always return two paragraphs; if p2 is empty, return a blank line to ensure spacing.
-    return p2 ? `${p1}\n\n${p2}` : `${p1}\n\n`
+// Force “two paragraphs” for Business Overview
+const twoParasSmart = (input?: string): [string, string] => {
+  const raw = String(input ?? "")
+  if (!raw.trim()) return ["", ""]
+  const byBlank = raw.split(/\r?\n\s*\n/)
+  if (byBlank.length > 1) return [byBlank[0].trim(), byBlank.slice(1).join(" ").trim()]
+  const t = raw.replace(/\r\n/g, "\n").replace(/\s+/g, " ").trim()
+  const sentences = t.match(/[^.!?]+[.!?]+(?=\s|$)/g) ?? []
+  if (sentences.length) {
+    const breakAfter = sentences.length >= 16 ? 8 : Math.ceil(sentences.length / 2)
+    const p1 = sentences.slice(0, breakAfter).join(" ").trim()
+    const p2 = sentences.slice(breakAfter).join(" ").trim()
+    if (p1 && p2) return [p1, p2]
   }
-
-  // Fallback: split roughly in half by words so you still see two paragraphs.
   const words = t.split(/\s+/)
   const mid = Math.ceil(words.length / 2)
-  return `${words.slice(0, mid).join(" ")}\n\n${words.slice(mid).join(" ")}`
+  return [words.slice(0, mid).join(" "), words.slice(mid).join(" ")]
+}
+
+/* ---------- HTML builders for the whole-page typewriter path (NEW) -------- */
+
+function makeGenericTableHTML(rows: any[]) {
+  if (!rows?.length) return `<p class="text-sm text-gray-500">No data.</p>`
+  const cols = Object.keys(rows[0] || {})
+  return `
+<table class="w-full table-auto border-collapse border">
+  <thead>
+    <tr>
+      ${cols.map(c => `<th class="border px-2 py-1 text-left">${esc(c)}</th>`).join("")}
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map(r => `
+      <tr>
+        ${cols.map(c => `<td class="border px-2 py-1">${esc(String(r?.[c] ?? ""))}</td>`).join("")}
+      </tr>
+    `).join("")}
+  </tbody>
+</table>`
+}
+
+function makeExecutiveSummaryHTML(g: GeneratedPlan) {
+  const rows = Array.isArray(g?.executiveSummary?.funding?.usageOfFunds)
+    ? g.executiveSummary.funding.usageOfFunds
+    : []
+
+  const [bo1, bo2] = twoParasSmart(g?.executiveSummary?.businessOverview)
+
+  const tableHtml = rows.length
+    ? `
+<table class="w-full table-auto border-collapse border">
+  <thead>
+    <tr>
+      <th class="border px-2 py-1 text-left">Department</th>
+      <th class="border px-2 py-1 text-left">Allocation %</th>
+      <th class="border px-2 py-1 text-left">Amount (INR)</th>
+      <th class="border px-2 py-1 text-left">How it will be used</th>
+    </tr>
+  </thead>
+  <tbody>
+    ${rows.map(r => `
+      <tr>
+        <td class="border px-2 py-1">${esc(r?.department)}</td>
+        <td class="border px-2 py-1">${Number(r?.allocationPercent || 0)}%</td>
+        <td class="border px-2 py-1">₹${formatAmount(r?.amount)}</td>
+        <td class="border px-2 py-1">${esc(r?.howUsed)}</td>
+      </tr>
+    `).join("")}
+  </tbody>
+</table>`
+    : `<p class="text-sm text-gray-500">No usage-of-funds rows yet. (This section will populate after generation or edit.)</p>`
+
+  return `
+  <h4 class="font-bold">Business Overview</h4>
+  <p class="leading-7 mb-4">${esc(bo1)}</p>
+  ${bo2 ? `<p class="leading-7 mb-4">${esc(bo2)}</p>` : ""}
+
+  <h4 class="font-bold">Our Mission</h4>
+  <p class="leading-7 mb-4">${esc(g?.executiveSummary?.ourMission)}</p>
+
+  <h4 class="font-bold">Funding Requirements</h4>
+  <p class="leading-7 mb-2">${esc(g?.executiveSummary?.funding?.p1)}</p>
+  <div class="mt-2 mb-2 font-semibold">Usage of Funds (must sum to 100%)</div>
+  ${tableHtml}
+  <p class="leading-7 mt-2">${esc(g?.executiveSummary?.funding?.p2)}</p>
+
+  <h4 class="font-bold">Problem Statement</h4>
+  <p class="leading-7 mb-4">${esc(g?.executiveSummary?.problemStatement)}</p>
+
+  <h4 class="font-bold">Solution</h4>
+  <p class="leading-7">${esc(g?.executiveSummary?.solution)}</p>
+  `
+}
+
+function makeSectionHTML(
+  section: { key: string; title: string; description?: string; subsections: { key: string; title: string }[] },
+  g: GeneratedPlan,
+  _planData: BusinessPlanData
+) {
+  // Executive Summary is custom
+  if (section.key === "executiveSummary") {
+    return `
+<section id="${esc(section.key)}" class="scroll-mt-20">
+  <div class="border-0 shadow-lg bg-white rounded-xl">
+    <div class="px-6 py-4">
+      <div class="text-xl font-bold text-gray-900">${esc(section.title)}</div>
+      ${section.description ? `<p class="text-gray-600 text-sm mt-1">${esc(section.description)}</p>` : ""}
+    </div>
+    <hr class="mx-6" />
+    <div class="pt-6 px-6 space-y-6">
+      ${makeExecutiveSummaryHTML(g)}
+    </div>
+  </div>
+</section>`
+  }
+
+  // Other sections – generic renderer
+  const blob = (g as any)?.[section.key] ?? {}
+  const inner = section.subsections.map(({ key, title }) => {
+    const raw = blob?.[key]
+    if (Array.isArray(raw)) {
+      return `
+      <div class="space-y-2">
+        <h4 class="font-bold">${esc(title)}</h4>
+        ${makeGenericTableHTML(raw)}
+      </div>`
+    }
+    const text = typeof raw === "string" ? raw : (raw ? JSON.stringify(raw, null, 2) : "")
+    return `
+      <div class="space-y-2">
+        <h4 class="font-bold">${esc(title)}</h4>
+        <p class="leading-7 whitespace-pre-wrap">${esc(text)}</p>
+      </div>`
+  }).join("")
+
+  return `
+<section id="${esc(section.key)}" class="scroll-mt-20">
+  <div class="border-0 shadow-lg bg-white rounded-xl">
+    <div class="px-6 py-4">
+      <div class="text-xl font-bold text-gray-900">${esc(section.title)}</div>
+      ${section.description ? `<p class="text-gray-600 text-sm mt-1">${esc(section.description)}</p>` : ""}
+    </div>
+    <hr class="mx-6" />
+    <div class="pt-6 px-6 space-y-6">
+      ${inner}
+    </div>
+  </div>
+</section>`
+}
+
+function makeFullPlanHTML(
+  planData: BusinessPlanData,
+  g: GeneratedPlan,
+) {
+  const productCount = Array.isArray(planData.products) ? planData.products.length : 0
+
+  const sections = [
+    {
+      key: "executiveSummary",
+      title: "Executive Summary",
+      description: "Business overview, mission, funding, problem & solution",
+      subsections: [
+        { key: "businessOverview", title: "Business Overview" },
+        { key: "ourMission", title: "Our Mission" },
+        { key: "funding", title: "Funding Requirements" },
+        { key: "problemStatement", title: "Problem Statement" },
+        { key: "solution", title: "Solution" },
+      ],
+    },
+    {
+      key: "companyOverview",
+      title: "Company Overview",
+      description: "Vision, mission, legal & founding team",
+      subsections: [
+        { key: "visionStatement", title: "Vision Statement" },
+        { key: "missionStatement", title: "Mission Statement" },
+        { key: "legalStructureOwnership", title: "Legal Structure & Ownership" },
+        { key: "foundingTeam", title: "Founding Team" },
+      ],
+    },
+    {
+      key: "products",
+      title: "Products",
+      description: "Overview, details, USPs, roadmap & IP status",
+      subsections: [
+        { key: "overview", title: "Overview" },
+        ...Array.from({ length: productCount }, (_, i) => ({
+          key: `product${i + 1}`,
+          title: `Product ${i + 1}${planData.products?.[i]?.name ? `: ${planData.products[i].name}` : ""}`,
+        })),
+        { key: "uniqueSellingPropositions", title: "Unique Selling Propositions (USPs)" },
+        { key: "developmentRoadmap", title: "Development Roadmap" },
+        { key: "intellectualPropertyRegulatoryStatus", title: "Intellectual Property & Regulatory Status" },
+      ],
+    },
+    {
+      key: "marketAnalysis",
+      title: "Market Analysis",
+      description: "Industry overview, trends, segmentation & competition",
+      subsections: [
+        { key: "industryOverviewSize", title: "Industry Overview & Size" },
+        { key: "growthTrendsDrivers", title: "Growth Trends & Drivers" },
+        { key: "underlyingBusinessDrivers", title: "Underlying Business Drivers" },
+        { key: "targetMarketSegmentation", title: "Target Market Segmentation" },
+        { key: "customerPersonasNeeds", title: "Customer Personas & Their Needs" },
+        { key: "competitiveLandscapePositioning", title: "Competitive Landscape & Positioning" },
+        { key: "productsDifferentiation", title: "Products’ Differentiation" },
+        { key: "barriersToEntry", title: "Barriers to Entry" },
+      ],
+    },
+    {
+      key: "marketingSalesStrategies",
+      title: "Marketing & Sales Strategies",
+      description: "Channels, cost structure, pricing & retention",
+      subsections: [
+        { key: "distributionChannels", title: "Distribution Channels" },
+        { key: "technologyCostStructure", title: "Technology Cost Structure" },
+        { key: "customerPricingStructure", title: "Customer Pricing Structure" },
+        { key: "retentionStrategies", title: "Retention Strategies" },
+        { key: "integratedFunnelFinancialImpact", title: "Integrated Funnel & Financial Impact" },
+      ],
+    },
+    {
+      key: "operationsPlan",
+      title: "Operations Plan",
+      description: "Structure, workflow & KPIs",
+      subsections: [
+        { key: "overview", title: "Overview" },
+        { key: "organizationalStructureTeamResponsibilities", title: "Organizational Structure & Team Responsibilities" },
+        { key: "infrastructure", title: "Infrastructure" },
+        { key: "customerOnboardingToRenewalWorkflow", title: "Customer Onboarding-to-Renewal Workflow" },
+        { key: "crossFunctionalCommunicationDecisionMaking", title: "Cross-Functional Communication & Decision-Making" },
+        { key: "keyPerformanceMetricsGoals", title: "Key Performance Metrics & Goals" },
+      ],
+    },
+    {
+      key: "managementOrganization",
+      title: "Management & Organization",
+      description: "Chart, roles & hiring plan",
+      subsections: [
+        { key: "overview", title: "Overview" },
+        { key: "organizationalChart", title: "Organizational Chart" },
+        { key: "hiringPlanKeyRoles", title: "Hiring Plan & Key Roles" },
+      ],
+    },
+    {
+      key: "financialPlan",
+      title: "Financial Plan",
+      description: "Assumptions, forecasts, P&L, cash flow & metrics",
+      subsections: [
+        { key: "overview", title: "Overview" },
+        { key: "keyAssumptions", title: "Key Assumptions" },
+        { key: "revenueForecast", title: "Revenue Forecast" },
+        { key: "cogs", title: "Cost of Goods Sold (COGS)" },
+        { key: "opEx", title: "Operating Expenses (OpEx)" },
+        { key: "projectedPnl", title: "Projected Profit & Loss Statement (P&L)" },
+        { key: "cashFlowRunwayAnalysis", title: "Cash Flow & Runway Analysis" },
+        { key: "keyFinancialMetricsRatios", title: "Key Financial Metrics & Ratios" },
+        { key: "useOfFundsRunway", title: "Use of Funds & Runway" },
+        { key: "keySensitivityRiskScenarios", title: "Key Sensitivity & Risk Scenarios" },
+        { key: "summaryOutlook", title: "Summary & Outlook" },
+      ],
+    },
+    {
+      key: "riskAnalysisMitigation",
+      title: "Risk Analysis & Mitigation",
+      description: "All categories of risk and contingencies",
+      subsections: [
+        { key: "overview", title: "Overview" },
+        { key: "marketRisks", title: "Market Risks" },
+        { key: "operationalRisks", title: "Operational Risks" },
+        { key: "regulatoryLegalRisks", title: "Regulatory & Legal Risks" },
+        { key: "financialRisks", title: "Financial Risks" },
+        { key: "contingencyPlans", title: "Contingency Plans" },
+      ],
+    },
+    {
+      key: "appendices",
+      title: "Appendices",
+      description: "Glossary, resources & financial tables",
+      subsections: [
+        { key: "glossary", title: "Glossary" },
+        { key: "managementTeamsResources", title: "Management Teams’ Resources" },
+        { key: "projectedFinancesTables", title: "Projected Finances Tables" },
+      ],
+    },
+  ]
+
+  return `
+<div class="space-y-6">
+  ${sections.map(sec => makeSectionHTML(sec, g, planData)).join("")}
+</div>`
 }
 
 /* -------------------------------------------------------------------------- */
-/*                     Deterministic JSX blocks (NEW)                         */
+/*                        Small blocks you already had                        */
 /* -------------------------------------------------------------------------- */
 
 function LegalOwnershipBlock({ data }: { data: BusinessPlanData }) {
   const owners = Array.isArray(data.ownership) ? data.ownership : []
-  const percents = owners
-    .map(o => Number(o?.ownershipPercent))
-    .filter(n => Number.isFinite(n)) as number[]
-  const hasEquity = percents.length > 0
-  const totalPct = hasEquity ? Math.round(percents.reduce((a, b) => a + b, 0)) : 0
-
   return (
     <div>
       <ul className="list-disc ml-6 space-y-1">
@@ -117,12 +374,6 @@ function LegalOwnershipBlock({ data }: { data: BusinessPlanData }) {
           </ul>
         </li>
       </ul>
-
-      {/* {hasEquity && (
-        <p className={`mt-2 text-sm ${totalPct === 100 ? "text-green-600" : "text-red-600"}`}>
-          Total equity: <strong>{totalPct}%</strong>{totalPct === 100 ? "" : " (must equal 100%)"}
-        </p>
-      )} */}
     </div>
   )
 }
@@ -152,59 +403,46 @@ function FoundingTeamBlock({ data }: { data: BusinessPlanData }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*                                Component                                   */
+/*                                   Component                                */
 /* -------------------------------------------------------------------------- */
 
 interface PlanOutputProps {
   planData: BusinessPlanData
   generatedPlan: GeneratedPlan
-
-  // your AI‐trigger
   onEditSection: (sectionKey: string) => void
-
-  // manually editing a specific subsection
   manualEditingSection: string | null
   manualEditingSubsection: string | null
   manualEditedContent: string
-
-  // fire when you click “Edit” on a subsection
   onManualStartEdit: (sectionKey: string, subKey: string) => void
-
-  // fire when you click “Save” in a subsection’s textarea
-  onManualSaveSubsection: (
-    sectionKey: string,
-    subKey: string,
-    newContent: string
-  ) => void
-
+  onManualSaveSubsection: (sectionKey: string, subKey: string, newContent: string) => void
   onManualEditedContentChange: (value: string) => void
   onManualCancel: () => void
-
   onDownload: () => void
 }
 
-export function PlanOutput({
-  planData,
-  generatedPlan,
-  onEditSection,
-  onDownload,
+export function PlanOutput(props: PlanOutputProps) {
+  const {
+    planData,
+    generatedPlan,
+    onEditSection,
+    onDownload,
+    onManualStartEdit,
+    onManualSaveSubsection,
+    manualEditingSection,
+    manualEditingSubsection,
+    manualEditedContent,
+    onManualEditedContentChange,
+    onManualCancel,
+  } = props
 
-  // these two must match exactly what you just put in the interface:
-  onManualStartEdit,
-  onManualSaveSubsection,
-
-  manualEditingSection,
-  manualEditingSubsection,
-  manualEditedContent,
-  onManualEditedContentChange,
-  onManualCancel,
-}: PlanOutputProps) {
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<string | null>(null)
   const toggleSection = (key: string) => setOpenSection(openSection === key ? null : key)
 
-  // ✅ how many products to render (and label with names)
   const productCount = Array.isArray(planData.products) ? planData.products.length : 0
+
+  // Flip this to false to disable the typed whole-page view:
+  const enableTypewriter = true
 
   const sections = [
     {
@@ -407,370 +645,399 @@ export function PlanOutput({
 
         {/* Sections */}
         <div className="px-6 pt-2 pb-0">
-          <div className="max-w-3xl mx-auto space-y-6">
-            {sections.map((section) => {
-              const Icon = section.icon
-              return (
-                <section id={section.key} key={section.key} className="scroll-mt-20">
-                  <Card
-                    className={`border-0 shadow-lg bg-white transition-all duration-300 ${
-                      hoveredSection === section.key ? "shadow-xl transform scale-[1.02]" : ""
-                    }`}
-                    onMouseEnter={() => setHoveredSection(section.key)}
-                    onMouseLeave={() => setHoveredSection(null)}
-                  >
-                    <CardHeader className="pb-4 px-6">
-                      <div className="flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                          <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-100 to-red-100 rounded-2xl">
-                            <Icon className="h-6 w-6 text-orange-600" />
-                          </div>
-                          <div>
-                            <CardTitle className="text-xl font-bold text-gray-900">
-                              {section.title}
-                            </CardTitle>
-                            {section.description && (
-                              <p className="text-gray-600 text-sm mt-1">{section.description}</p>
-                            )}
-                          </div>
-                        </div>
-                        <Button
-                          onClick={() => onEditSection(section.key)}
-                          variant="outline"
-                          size="sm"
-                          className={`rounded-2xl transition-all duration-300 ${
-                            hoveredSection === section.key
-                              ? "opacity-100 transform scale-105 border-orange-300 text-orange-600 hover:bg-orange-50"
-                              : "opacity-0"
-                          }`}
-                        >
-                          <Edit3 className="h-4 w-2 mr-2" />
-                          Ask to AI
-                        </Button>
-                      </div>
-                    </CardHeader>
-
-                    <Separator className="mx-6" />
-                    <CardContent className="pt-6 px-6 space-y-6">
-                      {/* ───────────────────────────── Executive Summary (custom) ───────────────────────────── */}
-                      {section.key === "executiveSummary" ? (
-                        <>
-                          {/* Business Overview (typewriter + forced 2 paragraphs) */}
-                          <div className="group space-y-2">
-                            <div className="flex justify-between items-center">
-                              <h4 className="font-bold">Business Overview</h4>
-                              {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "businessOverview") && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => onManualStartEdit("executiveSummary", "businessOverview")}
-                                  aria-label="Edit Business Overview"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </Button>
-                              )}
+          <div className="max-w-3xl mx-auto">
+            {enableTypewriter ? (
+              // ── WHOLE PAGE typed as a single continuous flow (includes tables)
+              <div className="prose max-w-none">
+                <TypewriterHTML
+                    html={makeExecutiveSummaryHTML(generatedPlan)}
+                    speedMs={8}          // try 6 if you want even faster
+                    startDelayMs={0}
+                    cursor={true}
+                  />
+              </div>
+            ) : (
+              // ── Your existing interactive renderer (with inline edit)
+              <div className="space-y-6">
+                {sections.map((section) => {
+                  const Icon = section.icon
+                  return (
+                    <section id={section.key} key={section.key} className="scroll-mt-20">
+                      <Card
+                        className={`border-0 shadow-lg bg-white transition-all duration-300 ${
+                          hoveredSection === section.key ? "shadow-xl transform scale-[1.02]" : ""
+                        }`}
+                        onMouseEnter={() => setHoveredSection(section.key)}
+                        onMouseLeave={() => setHoveredSection(null)}
+                      >
+                        <CardHeader className="pb-4 px-6">
+                          <div className="flex items-center justify-between">
+                            <div className="flex items-center space-x-4">
+                              <div className="flex items-center justify-center w-12 h-12 bg-gradient-to-r from-orange-100 to-red-100 rounded-2xl">
+                                <Icon className="h-6 w-6 text-orange-600" />
+                              </div>
+                              <div>
+                                <CardTitle className="text-xl font-bold text-gray-900">
+                                  {section.title}
+                                </CardTitle>
+                                {section.description && (
+                                  <p className="text-gray-600 text-sm mt-1">{section.description}</p>
+                                )}
+                              </div>
                             </div>
-                            {manualEditingSection === "executiveSummary" && manualEditingSubsection === "businessOverview" ? (
-                              <>
-                                <textarea
-                                  rows={6}
-                                  className="w-full border rounded p-2 font-mono text-sm"
-                                  value={manualEditedContent}
-                                  onChange={(e) => onManualEditedContentChange(e.target.value)}
-                                />
-                                <div className="flex gap-2 mt-2">
-                                  <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "businessOverview", manualEditedContent)}>Save</Button>
-                                  <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
-                                </div>
-                              </>
-                            ) : (
-                              <TypewriterParagraph
-                                text={ensureTwoParagraphsBy8(generatedPlan.executiveSummary.businessOverview)}
-                                speed={28}
-                                className="leading-7"
-                              />
-                            )}
+                            <Button
+                              onClick={() => onEditSection(section.key)}
+                              variant="outline"
+                              size="sm"
+                              className="rounded-2xl border-orange-300 text-orange-600 hover:bg-orange-50"
+                            >
+                              <Edit3 className="h-4 w-4 mr-2" />
+                              Ask to AI
+                            </Button>
                           </div>
+                        </CardHeader>
 
-                          {/* Our Mission (typewriter) */}
-                          <div className="group space-y-2">
-                            <div className="flex justify-between items-center">
-                              <h4 className="font-bold">Our Mission</h4>
-                              {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "ourMission") && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => onManualStartEdit("executiveSummary", "ourMission")}
-                                  aria-label="Edit Our Mission"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-                            {manualEditingSection === "executiveSummary" && manualEditingSubsection === "ourMission" ? (
-                              <>
-                                <textarea
-                                  rows={4}
-                                  className="w-full border rounded p-2 font-mono text-sm"
-                                  value={manualEditedContent}
-                                  onChange={(e) => onManualEditedContentChange(e.target.value)}
-                                />
-                                <div className="flex gap-2 mt-2">
-                                  <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "ourMission", manualEditedContent)}>Save</Button>
-                                  <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
-                                </div>
-                              </>
-                            ) : (
-                              <TypewriterParagraph text={generatedPlan.executiveSummary.ourMission} speed={30} className="leading-7" />
-                            )}
-                          </div>
-
-                          {/* Funding Requirements (P1 + Table + P2) */}
-                          <div className="group space-y-2">
-                            <div className="flex justify-between items-center">
-                              <h4 className="font-bold">Funding Requirements</h4>
-                              {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "funding") && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => onManualStartEdit("executiveSummary", "funding")}
-                                  aria-label="Edit Funding (JSON)"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-
-                            {/* P1 */}
-                            <ReactMarkdown>{generatedPlan.executiveSummary.funding.p1}</ReactMarkdown>
-
-                            {/* Usage of Funds table */}
-                            <h5 className="font-semibold mt-2">Usage of Funds (must sum to 100%)</h5>
-                            <table className="w-full table-auto border-collapse border">
-                              <thead>
-                                <tr>
-                                  <th className="border px-2 py-1 text-left">Department</th>
-                                  <th className="border px-2 py-1 text-left">Allocation %</th>
-                                  <th className="border px-2 py-1 text-left">Amount (INR)</th>
-                                  <th className="border px-2 py-1 text-left">How it will be used</th>
-                                </tr>
-                              </thead>
-                              <tbody>
-                                {generatedPlan.executiveSummary.funding.usageOfFunds.map((r, i) => (
-                                  <tr key={i}>
-                                    <td className="border px-2 py-1">{r.department}</td>
-                                    <td className="border px-2 py-1">{`${r.allocationPercent}%`}</td>
-                                    <td className="border px-2 py-1">₹{formatAmount(r.amount)}</td>
-                                    <td className="border px-2 py-1">{r.howUsed}</td>
-                                  </tr>
-                                ))}
-                                <tr>
-                                  <td className="border px-2 py-1 font-semibold">Total</td>
-                                  <td className="border px-2 py-1 font-semibold">
-                                    {
-                                      generatedPlan.executiveSummary.funding.usageOfFunds
-                                        .reduce((a, r) => a + (Number(r.allocationPercent) || 0), 0)
-                                    }%
-                                  </td>
-                                  <td className="border px-2 py-1"></td>
-                                  <td className="border px-2 py-1"></td>
-                                </tr>
-                              </tbody>
-                            </table>
-
-                            {/* P2 – wrapper div carries the margin instead of className on ReactMarkdown */}
-                            <div className="mt-2">
-                              <ReactMarkdown>
-                                {generatedPlan.executiveSummary.funding.p2}
-                              </ReactMarkdown>
-                            </div>
-                          </div>
-
-                          {/* Problem Statement (typewriter) */}
-                          <div className="group space-y-2">
-                            <div className="flex justify-between items-center">
-                              <h4 className="font-bold">Problem Statement</h4>
-                              {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "problemStatement") && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => onManualStartEdit("executiveSummary", "problemStatement")}
-                                  aria-label="Edit Problem Statement"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-                            {manualEditingSection === "executiveSummary" && manualEditingSubsection === "problemStatement" ? (
-                              <>
-                                <textarea
-                                  rows={5}
-                                  className="w-full border rounded p-2 font-mono text-sm"
-                                  value={manualEditedContent}
-                                  onChange={(e) => onManualEditedContentChange(e.target.value)}
-                                />
-                                <div className="flex gap-2 mt-2">
-                                  <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "problemStatement", manualEditedContent)}>Save</Button>
-                                  <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
-                                </div>
-                              </>
-                            ) : (
-                              <TypewriterParagraph text={generatedPlan.executiveSummary.problemStatement} speed={30} className="leading-7" />
-                            )}
-                          </div>
-
-                          {/* Solution (typewriter) */}
-                          <div className="group space-y-2">
-                            <div className="flex justify-between items-center">
-                              <h4 className="font-bold">Solution</h4>
-                              {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "solution") && (
-                                <Button
-                                  variant="ghost"
-                                  size="icon"
-                                  className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                  onClick={() => onManualStartEdit("executiveSummary", "solution")}
-                                  aria-label="Edit Solution"
-                                >
-                                  <Edit3 className="h-4 w-4" />
-                                </Button>
-                              )}
-                            </div>
-                            {manualEditingSection === "executiveSummary" && manualEditingSubsection === "solution" ? (
-                              <>
-                                <textarea
-                                  rows={5}
-                                  className="w-full border rounded p-2 font-mono text-sm"
-                                  value={manualEditedContent}
-                                  onChange={(e) => onManualEditedContentChange(e.target.value)}
-                                />
-                                <div className="flex gap-2 mt-2">
-                                  <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "solution", manualEditedContent)}>Save</Button>
-                                  <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
-                                </div>
-                              </>
-                            ) : (
-                              <TypewriterParagraph text={generatedPlan.executiveSummary.solution} speed={30} className="leading-7" />
-                            )}
-                          </div>
-                        </>
-                      ) : (
-                        /* ───────────────────────────── Generic renderer for all other sections ───────────────────────────── */
-                        section.subsections.map(({ key: subKey, title }) => {
-                          // Deterministic JSX for legal/ownership + founding team
-                          if (section.key === "companyOverview" && subKey === "legalStructureOwnership") {
-                            return (
-                              <div key={subKey} className="group space-y-2">
+                        <Separator className="mx-6" />
+                        <CardContent className="pt-6 px-6 space-y-6">
+                          {/* ───────────────── Executive Summary (static) ───────────────── */}
+                          {section.key === "executiveSummary" ? (
+                            <>
+                              {/* Business Overview */}
+                              <div className="group space-y-2">
                                 <div className="flex justify-between items-center">
-                                  <h4 className="font-bold">{title}</h4>
+                                  <h4 className="font-bold">Business Overview</h4>
+                                  {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "businessOverview") && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="p-1"
+                                      onClick={() => onManualStartEdit("executiveSummary", "businessOverview")}
+                                      aria-label="Edit Business Overview"
+                                    >
+                                      <Edit3 className="h-4 w-4" />
+                                    </Button>
+                                  )}
                                 </div>
-                                <LegalOwnershipBlock data={planData} />
-                              </div>
-                            )
-                          }
-                          if (section.key === "companyOverview" && subKey === "foundingTeam") {
-                            return (
-                              <div key={subKey} className="group space-y-2">
-                                <div className="flex justify-between items-center">
-                                  <h4 className="font-bold">{title}</h4>
-                                </div>
-                                <FoundingTeamBlock data={planData} />
-                              </div>
-                            )
-                          }
 
-                          // Generic renderer: arrays => table, strings/objects => markdown + inline edit
-                          const raw = (generatedPlan as any)[section.key][subKey]
-
-                          if (Array.isArray(raw)) {
-                            return (
-                              <div key={subKey} className="space-y-2">
-                                <h4 className="font-bold">{title}</h4>
-                                <table className="w-full table-auto border-collapse border">
-                                  <thead>
-                                    <tr>
-                                      {Object.keys(raw[0] || {}).map((col) => (
-                                        <th key={col} className="border px-2 py-1 text-left">
-                                          {col}
-                                        </th>
-                                      ))}
-                                    </tr>
-                                  </thead>
-                                  <tbody>
-                                    {raw.map((row: any, i: number) => (
-                                      <tr key={i}>
-                                        {Object.values(row).map((val, j) => (
-                                          <td key={j} className="border px-2 py-1">
-                                            {val}
-                                          </td>
-                                        ))}
-                                      </tr>
-                                    ))}
-                                  </tbody>
-                                </table>
-                              </div>
-                            )
-                          }
-
-                          const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)
-                          const isEditing =
-                            manualEditingSection === section.key &&
-                            manualEditingSubsection === subKey
-
-                          return (
-                            <div key={subKey} className="group space-y-2">
-                              <div className="flex justify-between items-center">
-                                <h4 className="font-bold">{title}</h4>
-                                {!isEditing && (
-                                  <Button
-                                    variant="ghost"
-                                    size="icon"
-                                    className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
-                                    onClick={() => onManualStartEdit(section.key, subKey)}
-                                    aria-label={`Edit ${title}`}
-                                  >
-                                    <Edit3 className="h-4 w-4" />
-                                  </Button>
+                                {manualEditingSection === "executiveSummary" && manualEditingSubsection === "businessOverview" ? (
+                                  <>
+                                    <textarea
+                                      rows={6}
+                                      className="w-full border rounded p-2 font-mono text-sm"
+                                      value={manualEditedContent}
+                                      onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 mt-2">
+                                      <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "businessOverview", manualEditedContent)}>Save</Button>
+                                      <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  (() => {
+                                    const [p1, p2] = twoParasSmart(generatedPlan.executiveSummary.businessOverview)
+                                    const content = [p1, p2].filter(Boolean).join("\n\n")
+                                    return (
+                                      <ReactMarkdown components={{ p: ({ node, ...props }) => <p className="mb-4 leading-7" {...props} /> }}>
+                                        {content}
+                                      </ReactMarkdown>
+                                    )
+                                  })()
                                 )}
                               </div>
 
-                              {isEditing ? (
-                                <>
-                                  <textarea
-                                    rows={4}
-                                    className="w-full border rounded p-2 font-mono text-sm"
-                                    value={manualEditedContent}
-                                    onChange={(e) => onManualEditedContentChange(e.target.value)}
-                                  />
-                                  <div className="flex gap-2 mt-2">
+                              {/* Our Mission */}
+                              <div className="group space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-bold">Our Mission</h4>
+                                  {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "ourMission") && (
                                     <Button
-                                      size="sm"
-                                      onClick={() =>
-                                        onManualSaveSubsection(section.key, subKey, manualEditedContent)
-                                      }
+                                      variant="ghost"
+                                      size="icon"
+                                      className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                      onClick={() => onManualStartEdit("executiveSummary", "ourMission")}
+                                      aria-label="Edit Our Mission"
                                     >
-                                      Save
+                                      <Edit3 className="h-4 w-4" />
                                     </Button>
-                                    <Button size="sm" variant="outline" onClick={onManualCancel}>
-                                      Cancel
+                                  )}
+                                </div>
+                                {manualEditingSection === "executiveSummary" && manualEditingSubsection === "ourMission" ? (
+                                  <>
+                                    <textarea
+                                      rows={4}
+                                      className="w-full border rounded p-2 font-mono text-sm"
+                                      value={manualEditedContent}
+                                      onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 mt-2">
+                                      <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "ourMission", manualEditedContent)}>Save</Button>
+                                      <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <ReactMarkdown>{generatedPlan.executiveSummary.ourMission}</ReactMarkdown>
+                                )}
+                              </div>
+
+                              {/* Funding Requirements (P1 + Table + P2) */}
+                              <div className="group space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-bold">Funding Requirements</h4>
+                                  {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "funding") && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="p-1"
+                                      onClick={() => onManualStartEdit("executiveSummary", "funding")}
+                                      aria-label="Edit Funding (JSON)"
+                                    >
+                                      <Edit3 className="h-4 w-4" />
                                     </Button>
+                                  )}
+                                </div>
+
+                                {/* P1 */}
+                                <ReactMarkdown>{generatedPlan.executiveSummary.funding.p1}</ReactMarkdown>
+
+                                {/* Usage of Funds table */}
+                                <h5 className="font-semibold mt-2">Usage of Funds (must sum to 100%)</h5>
+                                {(() => {
+                                  const ufRows = Array.isArray(generatedPlan?.executiveSummary?.funding?.usageOfFunds)
+                                    ? generatedPlan.executiveSummary.funding.usageOfFunds
+                                    : []
+
+                                  if (!ufRows.length) {
+                                    return (
+                                      <p className="text-sm text-gray-500">
+                                        No usage-of-funds rows yet. (This section will populate after generation or edit.)
+                                      </p>
+                                    )
+                                  }
+
+                                  const totalPct = ufRows.reduce((a, r) => a + (Number(r?.allocationPercent) || 0), 0)
+
+                                  return (
+                                    <table className="w-full table-auto border-collapse border">
+                                      <thead>
+                                        <tr>
+                                          <th className="border px-2 py-1 text-left">Department</th>
+                                          <th className="border px-2 py-1 text-left">Allocation %</th>
+                                          <th className="border px-2 py-1 text-left">Amount (INR)</th>
+                                          <th className="border px-2 py-1 text-left">How it will be used</th>
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {ufRows.map((r, i) => (
+                                          <tr key={i}>
+                                            <td className="border px-2 py-1">{r?.department ?? ""}</td>
+                                            <td className="border px-2 py-1">{`${Number(r?.allocationPercent || 0)}%`}</td>
+                                            <td className="border px-2 py-1">₹{formatAmount(r?.amount)}</td>
+                                            <td className="border px-2 py-1">{r?.howUsed ?? ""}</td>
+                                          </tr>
+                                        ))}
+                                        <tr>
+                                          <td className="border px-2 py-1 font-semibold">Total</td>
+                                          <td className="border px-2 py-1 font-semibold">{totalPct}%</td>
+                                          <td className="border px-2 py-1"></td>
+                                          <td className="border px-2 py-1"></td>
+                                        </tr>
+                                      </tbody>
+                                    </table>
+                                  )
+                                })()}
+
+                                {/* P2 */}
+                                <div className="mt-2">
+                                  <ReactMarkdown>
+                                    {generatedPlan.executiveSummary.funding.p2}
+                                  </ReactMarkdown>
+                                </div>
+                              </div>
+
+                              {/* Problem Statement */}
+                              <div className="group space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-bold">Problem Statement</h4>
+                                  {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "problemStatement") && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="p-1"
+                                      onClick={() => onManualStartEdit("executiveSummary", "problemStatement")}
+                                      aria-label="Edit Problem Statement"
+                                    >
+                                      <Edit3 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                                {manualEditingSection === "executiveSummary" && manualEditingSubsection === "problemStatement" ? (
+                                  <>
+                                    <textarea
+                                      rows={5}
+                                      className="w-full border rounded p-2 font-mono text-sm"
+                                      value={manualEditedContent}
+                                      onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 mt-2">
+                                      <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "problemStatement", manualEditedContent)}>Save</Button>
+                                      <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <ReactMarkdown>{generatedPlan.executiveSummary.problemStatement}</ReactMarkdown>
+                                )}
+                              </div>
+
+                              {/* Solution */}
+                              <div className="group space-y-2">
+                                <div className="flex justify-between items-center">
+                                  <h4 className="font-bold">Solution</h4>
+                                  {!(manualEditingSection === "executiveSummary" && manualEditingSubsection === "solution") && (
+                                    <Button
+                                      variant="ghost"
+                                      size="icon"
+                                      className="p-1"
+                                      onClick={() => onManualStartEdit("executiveSummary", "solution")}
+                                      aria-label="Edit Solution"
+                                    >
+                                      <Edit3 className="h-4 w-4" />
+                                    </Button>
+                                  )}
+                                </div>
+                                {manualEditingSection === "executiveSummary" && manualEditingSubsection === "solution" ? (
+                                  <>
+                                    <textarea
+                                      rows={5}
+                                      className="w-full border rounded p-2 font-mono text-sm"
+                                      value={manualEditedContent}
+                                      onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                    />
+                                    <div className="flex gap-2 mt-2">
+                                      <Button size="sm" onClick={() => onManualSaveSubsection("executiveSummary", "solution", manualEditedContent)}>Save</Button>
+                                      <Button size="sm" variant="outline" onClick={onManualCancel}>Cancel</Button>
+                                    </div>
+                                  </>
+                                ) : (
+                                  <ReactMarkdown>{generatedPlan.executiveSummary.solution}</ReactMarkdown>
+                                )}
+                              </div>
+                            </>
+                          ) : (
+                            /* ─────────── Generic renderer for all other sections ─────────── */
+                            section.subsections.map(({ key: subKey, title }) => {
+                              // Deterministic JSX for legal/ownership + founding team
+                              if (section.key === "companyOverview" && subKey === "legalStructureOwnership") {
+                                return (
+                                  <div key={subKey} className="group space-y-2">
+                                    <div className="flex justify-between items-center">
+                                      <h4 className="font-bold">{title}</h4>
+                                    </div>
+                                    <LegalOwnershipBlock data={planData} />
                                   </div>
-                                </>
-                              ) : (
-                                <ReactMarkdown>{text}</ReactMarkdown>
-                              )}
-                            </div>
-                          )
-                        })
-                      )}
-                    </CardContent>
-                  </Card>
-                </section>
-              )
-            })}
+                                )
+                              }
+                              if (section.key === "companyOverview" && subKey === "foundingTeam") {
+                                return (
+                                  <div key={subKey} className="group space-y-2">
+                                    <div className="flex justify-between items-center">
+                                      <h4 className="font-bold">{title}</h4>
+                                    </div>
+                                    <FoundingTeamBlock data={planData} />
+                                  </div>
+                                )
+                              }
+
+                              // Generic renderer: arrays => table, strings/objects => markdown + inline edit
+                              const raw = (generatedPlan as any)[section.key][subKey]
+
+                              if (Array.isArray(raw)) {
+                                return (
+                                  <div key={subKey} className="space-y-2">
+                                    <h4 className="font-bold">{title}</h4>
+                                    <table className="w-full table-auto border-collapse border">
+                                      <thead>
+                                        <tr>
+                                          {Object.keys(raw[0] || {}).map((col) => (
+                                            <th key={col} className="border px-2 py-1 text-left">
+                                              {col}
+                                            </th>
+                                          ))}
+                                        </tr>
+                                      </thead>
+                                      <tbody>
+                                        {raw.map((row: any, i: number) => (
+                                          <tr key={i}>
+                                            {Object.values(row).map((val, j) => (
+                                              <td key={j} className="border px-2 py-1">
+                                                {val as any}
+                                              </td>
+                                            ))}
+                                          </tr>
+                                        ))}
+                                      </tbody>
+                                    </table>
+                                  </div>
+                                )
+                              }
+
+                              const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)
+                              const isEditing =
+                                manualEditingSection === section.key &&
+                                manualEditingSubsection === subKey
+
+                              return (
+                                <div key={subKey} className="group space-y-2">
+                                  <div className="flex justify-between items-center">
+                                    <h4 className="font-bold">{title}</h4>
+                                    {!isEditing && (
+                                      <Button
+                                        variant="ghost"
+                                        size="icon"
+                                        className="p-1 opacity-0 group-hover:opacity-100 transition-opacity"
+                                        onClick={() => onManualStartEdit(section.key, subKey)}
+                                        aria-label={`Edit ${title}`}
+                                      >
+                                        <Edit3 className="h-4 w-4" />
+                                      </Button>
+                                    )}
+                                  </div>
+
+                                  {isEditing ? (
+                                    <>
+                                      <textarea
+                                        rows={4}
+                                        className="w-full border rounded p-2 font-mono text-sm"
+                                        value={manualEditedContent}
+                                        onChange={(e) => onManualEditedContentChange(e.target.value)}
+                                      />
+                                      <div className="flex gap-2 mt-2">
+                                        <Button
+                                          size="sm"
+                                          onClick={() =>
+                                            onManualSaveSubsection(section.key, subKey, manualEditedContent)
+                                          }
+                                        >
+                                          Save
+                                        </Button>
+                                        <Button size="sm" variant="outline" onClick={onManualCancel}>
+                                          Cancel
+                                        </Button>
+                                      </div>
+                                    </>
+                                  ) : (
+                                    <ReactMarkdown>{text}</ReactMarkdown>
+                                  )}
+                                </div>
+                              )
+                            })
+                          )}
+                        </CardContent>
+                      </Card>
+                    </section>
+                  )
+                })}
+              </div>
+            )}
           </div>
         </div>
       </div>

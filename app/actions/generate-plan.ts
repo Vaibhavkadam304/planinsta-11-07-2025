@@ -446,6 +446,51 @@ function enforceInclusions(plan: any, formData: any) {
       includeIfMissing(plan.companyOverview.foundingTeam, sentence)
   }
 
+   // 1) Team size → Management & Organization → overview
+  const teamSize = (formData?.teamSize || "").trim()
+  if (teamSize) {
+    const sentence = `Current team size: ${teamSize}.`
+    plan.managementOrganization.overview =
+      includeIfMissing(plan.managementOrganization.overview, sentence)
+  }
+
+  // 2) Funding received → Executive Summary → Funding (P1) AND Financial Plan → overview
+  const fundingReceived = (formData?.fundingReceived || "").trim()
+  if (fundingReceived) {
+    const sentence = `Funding received: ${fundingReceived}.`
+    if (plan?.executiveSummary?.funding) {
+      plan.executiveSummary.funding.p1 =
+        includeIfMissing(plan.executiveSummary.funding.p1, sentence)
+    }
+    plan.financialPlan.overview =
+      includeIfMissing(plan.financialPlan.overview, sentence)
+  }
+
+  // 3) Investment utilization → Financial Plan → overview (one clean sentence)
+  const iu = Array.isArray(formData?.investmentUtilization)
+    ? formData.investmentUtilization.filter(r => (r?.item || r?.amount))
+    : []
+  if (iu.length) {
+    const sumText = iu
+      .map((r: { item?: string; amount?: string }) =>
+        `${String(r.item || "").trim()} ${
+          String(r.amount || "").trim().replace(/[^0-9,.-]/g, "")
+        }`
+      )
+      .join("; ")
+    const sentence = `Initial investment utilization: ${sumText}.`
+    plan.financialPlan.overview =
+      includeIfMissing(plan.financialPlan.overview, sentence)
+  }
+
+  // 4) Notes → Appendices → Management Teams’ Resources (last sentence style)
+  const notes = (formData?.notes || "").trim()
+  if (notes) {
+    const sentence = `Note: ${notes}.`
+    plan.appendices.managementTeamsResources =
+      includeIfMissing(plan.appendices.managementTeamsResources, sentence)
+  }
+
   const uspRoot = (formData as any)?.uniqueSellingPoint?.trim?.() || ""
   const keyFeatures = Array.isArray((formData as any)?.keyFeatures)
     ? (formData as any).keyFeatures.map((x: string) => String(x || "").trim()).filter(Boolean)
@@ -462,6 +507,8 @@ function enforceInclusions(plan: any, formData: any) {
     }
     plan.products.uniqueSellingPropositions = uspText
   }
+
+
 }
 
 // ──────────────────────────────────────────────────────────────
