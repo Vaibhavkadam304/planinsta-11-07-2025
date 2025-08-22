@@ -93,6 +93,10 @@ export interface BusinessPlanData {
   incorporationState: string
   ownership: Array<{ name: string; role: string; ownershipPercent?: number }>
   founders: Array<{ name: string; title: string; bio?: string; linkedinUrl?: string }>
+
+  // SWOT (quiz answers that seed AI)
+  successDrivers?: string[]
+  weaknesses?: string[]
 }
 
 // New row type for the Usage of Funds table
@@ -108,7 +112,6 @@ export interface GeneratedPlan {
     logo: string
   }
   executiveSummary: {
-    // NEW strict structure for the first main section
     businessOverview: string
     ourMission: string
     funding: {
@@ -220,6 +223,14 @@ export interface GeneratedPlan {
     managementTeamsResources: string
     projectedFinancesTables: string
   }
+
+  // NEW: full SWOT block produced by AI
+  swot?: {
+    strengths: Array<string | { Item: string }>
+    weaknesses: Array<string | { Item: string }>
+    opportunities: string[]
+    threats: string[]
+  }
 }
 
 type PlanBuilderStage = "quiz" | "generating" | "output"
@@ -242,7 +253,7 @@ export default function PlanBuilderClient() {
   const searchParams = useSearchParams()
   const { toast } = useToast()
   const inflightRef = useRef(false)
-  const autoRetriedRef = useRef(false)   // ← one-shot auto-retry after 429
+  const autoRetriedRef = useRef(false)
 
   const [hasRedirectedForPayment, setHasRedirectedForPayment] = useState(false)
   const [planId,             setPlanId]            = useState<string | null>(null)
@@ -288,6 +299,10 @@ export default function PlanBuilderClient() {
     incorporationState: "",
     ownership: [{ name: "", role: "", ownershipPercent: undefined }],
     founders: [{ name: "", title: "", bio: "", linkedinUrl: "" }],
+
+    // NEW: SWOT defaults (one slot each; UI can add more)
+    successDrivers: [""],
+    weaknesses: [""],
   })
   const [generatedPlan,      setGeneratedPlan]     = useState<GeneratedPlan | null>(null)
   const [editingSection,     setEditingSection]    = useState<string | null>(null)
@@ -311,9 +326,8 @@ export default function PlanBuilderClient() {
 
       const restored = JSON.parse(raw) as Partial<BusinessPlanData>;
 
-      // Normalize to ensure products exists even for older sessions
       const normalized: BusinessPlanData = {
-        ...planData, // keep defaults
+        ...planData,
         ...(restored as any),
         products:
           Array.isArray(restored.products) && restored.products.length
@@ -321,9 +335,7 @@ export default function PlanBuilderClient() {
             : [{ name: "", features: [""], uniqueSellingPoint: "" }],
       };
 
-      // 1) Restore UI state
       setPlanData(normalized);
-      // 2) Defer generation until session is ready
       postPayDataRef.current = normalized;
       setShouldAutoGenerate(true);
     }
@@ -334,7 +346,7 @@ export default function PlanBuilderClient() {
   useEffect(() => {
     if (!shouldAutoGenerate) return
     const uid = (session as any)?.user?.id
-    if (!uid) return // wait for session to be available
+    if (!uid) return
 
     _reallyGeneratePlan(postPayDataRef.current ?? planData)
     setShouldAutoGenerate(false)
@@ -346,7 +358,6 @@ export default function PlanBuilderClient() {
     if (session === null) router.replace("/auth/signin")
   }, [session, router])
 
-  // ─────── EARLY RETURN ───────
   if (session === undefined || session === null) return null
 
   // ─────── HELPERS & HANDLERS ───────
@@ -360,7 +371,7 @@ export default function PlanBuilderClient() {
       const userId = (session as any)?.user?.id ?? "";
       const res = await fetch("/api/generate-plan", {
         method: "POST",
-        credentials: "include",                 // ✅ ensure auth cookies are sent
+        credentials: "include",
         headers: {
           "Content-Type": "application/json",
           ...(userId ? { "x-user-id": userId } : {}),
@@ -375,19 +386,17 @@ export default function PlanBuilderClient() {
             ? Math.max(0, Math.min(60, retry))
             : 19;
 
-          // show toast only once
           toast({
             variant: "destructive",
             title: "Slow down a bit",
             description: `You’re generating too quickly — retrying automatically in ~${secondsLeft}s.`,
           });
 
-          // schedule ONE auto-retry after cooldown
           if (!autoRetriedRef.current) {
             autoRetriedRef.current = true;
             setTimeout(() => {
-              inflightRef.current = false;      // allow next call
-              _reallyGeneratePlan(dataToUse);   // try again once
+              inflightRef.current = false;
+              _reallyGeneratePlan(dataToUse);
             }, secondsLeft * 1000);
           } else {
             inflightRef.current = false;
@@ -398,7 +407,6 @@ export default function PlanBuilderClient() {
           throw new Error(err?.error || `Request failed (${res.status})`);
         }
       }
-
 
       const result: GenerateBusinessPlanResult = await res.json();
       if (!result.success) throw new Error(result.error || "Failed to generate plan");
@@ -428,22 +436,19 @@ export default function PlanBuilderClient() {
   console.log("🔧 PlanBuilderPage mounted, initial planData:", planData)
 
   async function handleGeneratePlan() {
-    // 1️⃣ stash quiz answers so we can restore after payment
     sessionStorage.setItem("planData", JSON.stringify(planData))
-    // 2️⃣ always redirect to payment
     router.replace("/plan-builder/payment-info")
   }
 
-  // ←────────────────── ADD YOUR SAVE HANDLER ───────────────────
   async function handleSavePlan() {
     if (!planId) return
     const res = await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
-      credentials: "include",                 // ✅ send cookies
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(planData),
     });
-    const { success, error } = await res.json();
+    const { success } = await res.json();
     if (!success) return
     setHasUnsavedChanges(false);
   }
@@ -483,7 +488,7 @@ export default function PlanBuilderClient() {
 
     const res = await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
-      credentials: "include",               // ✅ send cookies
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPlan),
     })
@@ -491,12 +496,10 @@ export default function PlanBuilderClient() {
     if (!success) return
   }
 
-  // Helper to Upper-case the first letter of each word
   function capitalizeWords(str: string): string {
     return str.replace(/\b\w/g, (char) => char.toUpperCase())
   }
 
-  // ← under your other handlers in PlanBuilderClient()
   async function handleManualSave(sectionKey: string, newText: string) {
     if (!planId || !generatedPlan) return
     const updatedPlan = { ...generatedPlan, [sectionKey]: newText }
@@ -505,7 +508,7 @@ export default function PlanBuilderClient() {
     setManualEditedContent("")
     await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
-      credentials: "include",               // ✅ send cookies
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(updatedPlan),
     })
@@ -517,7 +520,6 @@ export default function PlanBuilderClient() {
     }
   }
 
-  // 2️⃣ Next, add two helper handlers:
   function handleStartManualEdit(sectionKey: string, subKey: string) {
     setManualEditingSection(sectionKey)
     setManualEditingSubsection(subKey)
@@ -542,7 +544,7 @@ export default function PlanBuilderClient() {
     }))
     await fetch(`/api/plans/${planId}`, {
       method: "PATCH",
-      credentials: "include",               // ✅ send cookies
+      credentials: "include",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         [sectionKey]: {

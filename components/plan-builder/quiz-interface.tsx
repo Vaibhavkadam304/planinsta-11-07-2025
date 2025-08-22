@@ -1,7 +1,7 @@
 // components/plan-builder/quiz-interface.tsx
 "use client"
 
-import { useState } from "react"
+import { useEffect, useMemo, useState } from "react"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -11,10 +11,12 @@ import { Switch } from "@/components/ui/switch"
 import { Badge } from "@/components/ui/badge"
 import { Progress } from "@/components/ui/progress"
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card"
-import { ChevronLeft, ChevronRight, Plus, Minus, Wand2 } from "lucide-react"
+import { ChevronLeft, ChevronRight, Plus, Minus, Wand2, Loader2 } from "lucide-react"
 
 import type { BusinessPlanData } from "@/components/plan-builder/PlanBuilderClient"
 import SuggestedChoices from "@/components/SuggestedChoices"
+import { suggestSwot } from "@/app/actions/suggest-swot"   // ← NEW
+import SuggestedAudience from "@/components/SuggestedAudience"
 
 interface QuizInterfaceProps {
   data: BusinessPlanData
@@ -213,7 +215,6 @@ const sections: Section[] = [
         description: "The legal entity type for your business",
         type: "select",
         field: "legalStructure",
-        // (c) updated options to match spec
         options: ["Sole Proprietorship", "Partnership", "LLP", "Private Limited", "Other"],
       },
       {
@@ -234,7 +235,6 @@ const sections: Section[] = [
       },
     ],
   },
-  // (b) New dedicated section: Legal Structure & Ownership
   {
     id: "company-legal-ownership",
     title: "Legal Structure & Ownership",
@@ -283,6 +283,34 @@ const sections: Section[] = [
       },
     ],
   },
+
+  // ✅ SWOT section (after Legal Structure & Ownership)
+  {
+    id: "swot-analysis",
+    title: "Success Drivers",
+    description: "Success Drivers are the most important things that contribute to the success of a business.",
+    questions: [
+      {
+        id: "success-drivers",
+        title: "Success Driver 1 (required)",
+        description: "Success Drivers are the most important things that contribute to the success of a business.",
+        type: "list",
+        field: "successDrivers",
+        required: true,
+        placeholder: "Success Driver",
+      },
+      {
+        id: "weaknesses",
+        title: "Weakness",
+        description: "",
+        type: "list",
+        field: "weaknesses",
+        required: true,
+        placeholder: "Weakness",
+      },
+    ],
+  },
+
   {
     id: "financial-info",
     title: "Financial Information",
@@ -391,9 +419,16 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   const currentSection = sections[currentSectionIndex]
   const progress = ((currentSectionIndex + 1) / sections.length) * 100
 
-  // track which textarea has focus to trigger suggestions auto-load
+  // For long-text suggestion widget
   const [activeSuggestionField, setActiveSuggestionField] =
-    useState<null | "visionStatement" | "shortTermGoal" | "longTermGoal">(null)
+     useState<null | "visionStatement" | "shortTermGoal" | "longTermGoal" | "targetAudience">(null)
+
+  // ✅ NEW: SWOT suggestions state
+  const [swotSugg, setSwotSugg] = useState<{ strengths: string[]; weaknesses: string[] }>({
+    strengths: [],
+    weaknesses: [],
+  })
+  const [swotLoading, setSwotLoading] = useState(false)
 
   const handleNext = () => {
     if (currentSectionIndex < sections.length - 1) setCurrentSectionIndex(currentSectionIndex + 1)
@@ -404,26 +439,26 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   const handleInputChange = (field: keyof BusinessPlanData, value: any) => onChange({ [field]: value })
 
   const addListItem = (field: keyof BusinessPlanData) => {
-    const currentValue = data[field] as string[]
+    const currentValue = (data[field] as string[]) || []
     onChange({ [field]: [...currentValue, ""] })
   }
   const removeListItem = (field: keyof BusinessPlanData, index: number) => {
-    const currentValue = data[field] as string[]
+    const currentValue = (data[field] as string[]) || []
     const newValue = currentValue.filter((_, i) => i !== index)
     onChange({ [field]: newValue })
   }
   const updateListItem = (field: keyof BusinessPlanData, index: number, value: string) => {
-    const currentValue = data[field] as string[]
+    const currentValue = (data[field] as string[]) || []
     const newValue = [...currentValue]
     newValue[index] = value
     onChange({ [field]: newValue })
   }
   const addKeyValueItem = (field: keyof BusinessPlanData) => {
-    const currentValue = data[field] as Array<{ item: string; amount: string }>
+    const currentValue = (data[field] as Array<{ item: string; amount: string }>) || []
     onChange({ [field]: [...currentValue, { item: "", amount: "" }] })
   }
   const removeKeyValueItem = (field: keyof BusinessPlanData, index: number) => {
-    const currentValue = data[field] as Array<{ item: string; amount: string }>
+    const currentValue = (data[field] as Array<{ item: string; amount: string }>) || []
     const newValue = currentValue.filter((_, i) => i !== index)
     onChange({ [field]: newValue })
   }
@@ -433,13 +468,13 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
     itemField: "item" | "amount",
     value: string,
   ) => {
-    const currentValue = data[field] as Array<{ item: string; amount: string }>
+    const currentValue = (data[field] as Array<{ item: string; amount: string }>) || []
     const newValue = [...currentValue]
     newValue[index][itemField] = value
     onChange({ [field]: newValue })
   }
 
-  // (e) Owners & Founders helpers
+  // Owners & Founders helpers
   const addOwnerRow = () => {
     const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
     onChange({ ownership: [...owners, { name: "", role: "", ownershipPercent: undefined }] })
@@ -478,7 +513,7 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   }
 
   const toggleMultiSelectOption = (field: keyof BusinessPlanData, option: string) => {
-    const currentValue = data[field] as string[]
+    const currentValue = (data[field] as string[]) || []
     const newValue = currentValue.includes(option)
       ? currentValue.filter((item) => item !== option)
       : [...currentValue, option]
@@ -492,9 +527,46 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
       const prods = data.products || []
       return prods.length > 0 && prods.every((p) => (p.name || "").trim().length > 0)
     }
+    // ✅ Require the first entry non-empty for SWOT lists
+    if (q.field === "successDrivers" || q.field === "weaknesses") {
+      const arr = ((data as any)[q.field] as string[] | undefined) || []
+      return (arr[0] ?? "").trim().length > 0
+    }
     const value = data[q.field]
-    return typeof value === "string" ? value.trim().length > 0 : Array.isArray(value) ? value.length > 0 : true
+    return typeof value === "string"
+      ? value.trim().length > 0
+      : Array.isArray(value)
+        ? value.length > 0
+        : true
   })
+
+  // ────────────────────────────────────────────────────────────
+  // Auto-load SWOT suggestions on entering the SWOT section
+  // ────────────────────────────────────────────────────────────
+  async function loadSwotSuggestions() {
+    // Don’t hammer the server; keep it simple.
+    if (swotLoading) return
+    setSwotLoading(true)
+    try {
+      const res = await suggestSwot({ data })
+      setSwotSugg({
+        strengths: Array.isArray(res?.strengths) ? res.strengths.slice(0, 5) : [],
+        weaknesses: Array.isArray(res?.weaknesses) ? res.weaknesses.slice(0, 5) : [],
+      })
+    } catch {
+      // ignore — keep UI usable
+    } finally {
+      setSwotLoading(false)
+    }
+  }
+
+  // Fire once when user navigates into the SWOT section (or on first render if we start there)
+  useEffect(() => {
+    if (currentSection.id === "swot-analysis" && swotSugg.strengths.length === 0 && swotSugg.weaknesses.length === 0) {
+      loadSwotSuggestions()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentSectionIndex, currentSection.id])
 
   const renderQuestionInput = (question: Question) => {
     const currentValue = data[question.field]
@@ -511,40 +583,53 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
         )
 
       case "textarea": {
-        const isVision = question.field === "visionStatement"
-        const isShort  = question.field === "shortTermGoal"
-        const isMid    = question.field === "longTermGoal"
-        return (
-          <>
-            <Textarea
-              value={currentValue as string}
-              onChange={(e) => handleInputChange(question.field, e.target.value)}
-              onFocus={() => {
-                if (isVision || isShort || isMid) setActiveSuggestionField(question.field as any)
-              }}
-              placeholder={question.placeholder}
-              className="rounded-2xl text-base p-4 min-h-[100px]"
-              rows={3}
-            />
+      const isVision   = question.field === "visionStatement"
+      const isShort    = question.field === "shortTermGoal"
+      const isMid      = question.field === "longTermGoal"
+      const isAudience = question.field === "targetAudience"
+      return (
+        <>
+          <Textarea
+            value={currentValue as string}
+            onChange={(e) => handleInputChange(question.field, e.target.value)}
+            onFocus={() => {
+              if (isVision || isShort || isMid || isAudience) {
+                setActiveSuggestionField(question.field as any)
+              }
+            }}
+            placeholder={question.placeholder}
+            className="rounded-2xl text-base p-4 min-h-[100px]"
+            rows={3}
+          />
 
-            {(isVision || isShort || isMid) && (
-              <SuggestedChoices
-                oneLiner={String(data.description || "")}
-                businessModel={String(data.businessModel || "")}
-                stage={String(data.businessStage || "")}
-                target={
-                  isVision ? "longTermVision" :
-                  isMid    ? "midTermGoal" :
-                             "next12moGoal"
-                }
-                active={activeSuggestionField === question.field}
-                onPick={(text) => handleInputChange(question.field, text)}
-                className="mt-2"
-              />
-            )}
-          </>
-        )
-      }
+          {(isVision || isShort || isMid) && (
+            <SuggestedChoices
+              oneLiner={String(data.description || "")}
+              businessModel={String(data.businessModel || "")}
+              stage={String(data.businessStage || "")}
+              target={
+                isVision ? "longTermVision" :
+                isMid    ? "midTermGoal"   :
+                            "next12moGoal"
+              }
+              active={activeSuggestionField === question.field}
+              onPick={(text) => handleInputChange(question.field, text)}
+              className="mt-2"
+            />
+          )}
+
+          {isAudience && (
+            <SuggestedAudience
+              data={data}
+              active={activeSuggestionField === "targetAudience"}
+              onPick={(text) => handleInputChange("targetAudience", text)}
+              className="mt-2"
+            />
+          )}
+        </>
+      )
+    }
+
 
       case "select":
         return (
@@ -598,7 +683,7 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
 
       case "list":
         return (
-          <div className="space-y-3">
+          <div className="space-y-4">
             {(currentValue as string[]).map((item, index) => (
               <div key={index} className="flex items-center space-x-3">
                 <Input
@@ -619,10 +704,52 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
                 )}
               </div>
             ))}
+
             <Button onClick={() => addListItem(question.field)} size="sm" variant="outline" className="rounded-xl">
               <Plus className="h-4 w-4 mr-2" />
               Add Item
             </Button>
+
+            {/* ✅ Centered chips for SWOT suggestions (auto-loaded) */}
+            {(question.field === "successDrivers" || question.field === "weaknesses") && (
+              <div className="space-y-3 pt-2">
+                <div className="flex flex-wrap items-center justify-center gap-3">
+                  {(
+                    question.field === "successDrivers"
+                      ? swotSugg.strengths
+                      : swotSugg.weaknesses
+                  ).map((s, i) => (
+                    <button
+                      key={i}
+                      type="button"
+                      className="rounded-full border px-4 py-2 text-sm shadow-sm hover:bg-gray-50 transition"
+                      onClick={() => {
+                        const arr = [...((data[question.field] as string[]) || [])]
+                        const idx = arr.findIndex(v => !v?.trim())
+                        if (idx >= 0) arr[idx] = s
+                        else arr[0] = s
+                        onChange({ [question.field]: arr })
+                      }}
+                      title="Use suggestion"
+                    >
+                      {s}
+                    </button>
+                  ))}
+                </div>
+
+                <div className="flex items-center justify-center pt-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-2xl"
+                    onClick={loadSwotSuggestions}
+                    disabled={swotLoading}
+                  >
+                    {swotLoading ? <><Loader2 className="h-4 w-4 mr-2 animate-spin" /> Regenerating…</> : "Regenerate Suggestions"}
+                  </Button>
+                </div>
+              </div>
+            )}
           </div>
         )
 
@@ -751,7 +878,6 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
         )
       }
 
-      // (d) New renderers for owners & founders
       case "owners": {
         const owners = (data.ownership || []) as Array<{ name: string; role: string; ownershipPercent?: number }>
         const totalPct = owners.reduce((s, o) => s + (Number(o.ownershipPercent) || 0), 0)

@@ -46,14 +46,6 @@ const formatAmount = (v?: string, locale: string = "en-IN") => {
   return Number.isFinite(n) ? new Intl.NumberFormat(locale).format(n) : s
 }
 
-// number parser + currency formatter for our Revenue Statement
-const num = (x: any) => {
-  const n = Number(String(x ?? "").replace(/[^0-9.-]/g, ""))
-  return Number.isFinite(n) ? n : 0
-}
-const fmtINR = (n: number) =>
-  n === 0 && !Number.isFinite(n) ? "—" : `₹${new Intl.NumberFormat("en-IN").format(Math.round(n))}`
-
 const esc = (s?: string) =>
   String(s ?? "")
     .replace(/&/g, "&amp;")
@@ -137,96 +129,6 @@ function FoundingTeamBlock({ data }: { data: BusinessPlanData }) {
 }
 
 /* -------------------------------------------------------------------------- */
-/*             Revenue Statement (computed from quiz/planData)                */
-/* -------------------------------------------------------------------------- */
-
-function RevenueStatementTable({ planData }: { planData: BusinessPlanData }) {
-  const raw = (v: any) => String(v ?? "").trim()
-  const parseN = (v: any) => Number(String(v ?? "").replace(/[^\d.-]/g, ""))
-  const fmtNum = (n: number) =>
-    Number.isFinite(n) ? new Intl.NumberFormat("en-US").format(Math.round(n)) : ""
-
-  const company = raw((planData as any).businessName)
-
-  const mRevStr = raw((planData as any).monthlyRevenue)
-  const mExpStr = raw((planData as any).monthlyExpenses)
-  const mRev = parseN(mRevStr)
-  const mExp = parseN(mExpStr)
-  const yRevStr = mRev ? fmtNum(mRev * 12) : ""
-  const yExpStr = mExp ? fmtNum(mExp * 12) : ""
-  const netM = Number.isFinite(mRev - mExp) ? fmtNum(mRev - mExp) : ""
-  const netY = Number.isFinite((mRev - mExp) * 12) ? fmtNum((mRev - mExp) * 12) : ""
-
-  const investStr = raw((planData as any).initialInvestment)
-  const fundingReceivedStr = raw((planData as any).fundingReceived)
-  const fundingNeededStr = raw((planData as any).fundingNeeded)
-
-  const useRows = Array.isArray((planData as any).fundingUseBreakdown)
-    ? (planData as any).fundingUseBreakdown
-    : []
-
-  const utilRows = Array.isArray((planData as any).investmentUtilization)
-    ? (planData as any).investmentUtilization
-    : []
-
-  return (
-    <div className="space-y-2">
-      <h4 className="font-bold">Startup Revenue Statement</h4>
-      <table className="w-full table-auto border-collapse border">
-        <thead>
-          <tr>
-            <th className="border px-2 py-1 text-left bg-gray-50">Metric</th>
-            <th className="border px-2 py-1 text-left bg-gray-50">Value</th>
-          </tr>
-        </thead>
-        <tbody>
-          <tr><td className="border px-2 py-1">Company Name</td><td className="border px-2 py-1">{company}</td></tr>
-
-          <tr><td className="border px-2 py-1">Current Monthly Revenue</td><td className="border px-2 py-1">{mRevStr}</td></tr>
-          <tr><td className="border px-2 py-1">Projected Annual Revenue (×12)</td><td className="border px-2 py-1">{yRevStr}</td></tr>
-
-          <tr><td className="border px-2 py-1">Current Monthly Expenses</td><td className="border px-2 py-1">{mExpStr}</td></tr>
-          <tr><td className="border px-2 py-1">Projected Annual Expenses (×12)</td><td className="border px-2 py-1">{yExpStr}</td></tr>
-
-          {useRows?.length ? (
-            <>
-              <tr><td className="border px-2 py-1 font-semibold" colSpan={2}>Breakdown of Expenses (planned use)</td></tr>
-              {useRows.map((r: any, i: number) => (
-                <tr key={`use-${i}`}>
-                  <td className="border px-2 py-1">• {raw(r?.item ?? r?.category ?? r?.use)}</td>
-                  <td className="border px-2 py-1">{raw(r?.amount)}</td>
-                </tr>
-              ))}
-            </>
-          ) : null}
-
-          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Monthly</td><td className="border px-2 py-1">{netM}</td></tr>
-          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Annual</td><td className="border px-2 py-1">{netY}</td></tr>
-
-          <tr><td className="border px-2 py-1">Initial Investment</td><td className="border px-2 py-1">{investStr}</td></tr>
-
-          {utilRows?.length ? (
-            <>
-              <tr><td className="border px-2 py-1 font-semibold" colSpan={2}>Breakdown of Initial Investment</td></tr>
-              {utilRows.map((r: any, i: number) => (
-                <tr key={`util-${i}`}>
-                  <td className="border px-2 py-1">• {raw(r?.item ?? r?.category ?? r?.use)}</td>
-                  <td className="border px-2 py-1">{raw(r?.amount)}</td>
-                </tr>
-              ))}
-            </>
-          ) : null}
-
-          <tr><td className="border px-2 py-1">External Funding Received</td><td className="border px-2 py-1">{fundingReceivedStr || "—"}</td></tr>
-          <tr><td className="border px-2 py-1">Funding Requirement</td><td className="border px-2 py-1">{fundingNeededStr || "—"}</td></tr>
-        </tbody>
-      </table>
-    </div>
-  )
-}
-
-
-/* -------------------------------------------------------------------------- */
 /*                                   Component                                */
 /* -------------------------------------------------------------------------- */
 
@@ -258,10 +160,6 @@ export function PlanOutput(props: PlanOutputProps) {
     onManualEditedContentChange,
     onManualCancel,
   } = props
-
-  // View toggle
-  const [mode, setMode] = useState<"preview" | "edit">("preview")
-  const TYPE_SPEED_MS = 6 // very fast but readable
 
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<string | null>(null)
@@ -296,7 +194,7 @@ export function PlanOutput(props: PlanOutputProps) {
       ],
     },
 
-    // 👉 SWOT section
+    // 👉 NEW: SWOT section (inserted right after Company Overview)
     {
       key: "swot",
       title: "SWOT Analysis",
@@ -384,12 +282,16 @@ export function PlanOutput(props: PlanOutputProps) {
     {
       key: "financialPlan",
       title: "Financial Plan",
-      description: "Assumptions, revenue statement & metrics",
+      description: "Assumptions, forecasts, P&L, cash flow & metrics",
       icon: DollarSign,
       subsections: [
         { key: "overview", title: "Overview" },
         { key: "keyAssumptions", title: "Key Assumptions" },
-        { key: "revenueStatement", title: "Startup Revenue Statement" }, // 👈 NEW single table
+        { key: "revenueForecast", title: "Revenue Forecast" },
+        { key: "cogs", title: "Cost of Goods Sold (COGS)" },
+        { key: "opEx", title: "Operating Expenses (OpEx)" },
+        { key: "projectedPnl", title: "Projected Profit & Loss Statement (P&L)" },
+        { key: "cashFlowRunwayAnalysis", title: "Cash Flow & Runway Analysis" },
         { key: "keyFinancialMetricsRatios", title: "Key Financial Metrics & Ratios" },
         { key: "useOfFundsRunway", title: "Use of Funds & Runway" },
         { key: "keySensitivityRiskScenarios", title: "Key Sensitivity & Risk Scenarios" },
@@ -422,212 +324,6 @@ export function PlanOutput(props: PlanOutputProps) {
       ],
     },
   ]
-
-  // Build full-page HTML for typed preview
-  const buildFullPlanHTML = () => {
-    const joinParas = (txt: any) => {
-      const s = String(txt ?? "").trim()
-      if (!s) return ""
-      if (s.includes("\n\n")) {
-        return s.split(/\n\n+/).map(p => `<p>${esc(p)}</p>`).join("")
-      }
-      const sentences = s.split(/(?<=[.!?])\s+/)
-      if (sentences.length < 2) return `<p>${esc(s)}</p>`
-      const mid = Math.ceil(sentences.length / 2)
-      return `<p>${esc(sentences.slice(0, mid).join(" "))}</p><p>${esc(sentences.slice(mid).join(" "))}</p>`
-    }
-
-    const listBlock = (title: string, items: any[]) => {
-      const li = (items || []).map(x => {
-        const t = typeof x === "string" ? x : (x && typeof x === "object" && ("Item" in x || "item" in x) ? (x.Item ?? x.item) : JSON.stringify(x))
-        return `<li>${esc(t)}</li>`
-      }).join("")
-      return `<div class="mb-3"><h3 class="font-semibold text-lg mb-2">${esc(title)}</h3><ul class="list-disc ml-6 space-y-1">${li}</ul></div>`
-    }
-
-    const tableFromArray = (title: string, rows: any[]) => {
-      if (!Array.isArray(rows) || rows.length === 0) {
-        return `<div class="mb-3"><h3 class="font-semibold text-lg mb-2">${esc(title)}</h3><p class="text-sm text-gray-500">No data.</p></div>`
-      }
-      const keysSet = new Set<string>()
-      rows.forEach(r => Object.keys(r || {}).forEach(k => keysSet.add(k)))
-      const keys = Array.from(keysSet)
-      const head = keys.map(k => `<th class="border px-2 py-1 text-left">${esc(k)}</th>`).join("")
-      const body = rows.map(r => `<tr>${
-        keys.map(k => `<td class="border px-2 py-1">${esc((r || {})[k])}</td>`).join("")
-      }</tr>`).join("")
-      return `<div class="mb-3">
-        <h3 class="font-semibold text-lg mb-2">${esc(title)}</h3>
-        <table class="w-full table-auto border-collapse border">
-          <thead><tr>${head}</tr></thead>
-          <tbody>${body}</tbody>
-        </table>
-      </div>`
-    }
-
-    // Build the Revenue Statement HTML from planData
-    // Replace your revenueStatementHTML() with this:
-    const revenueStatementHTML = () => {
-      const raw = (v: any) => String(v ?? "").trim()
-      const parseN = (v: any) => Number(String(v ?? "").replace(/[^\d.-]/g, ""))
-      const fmtNum = (n: number) =>
-        Number.isFinite(n) ? new Intl.NumberFormat("en-US").format(Math.round(n)) : ""
-
-      const company = raw(planData.businessName)
-      const mRevStr = raw((planData as any).monthlyRevenue)
-      const mExpStr = raw((planData as any).monthlyExpenses)
-      const mRev = parseN(mRevStr)
-      const mExp = parseN(mExpStr)
-
-      const rows: string[] = []
-      const row = (k: string, v: string) => `<tr><td class="border px-2 py-1">${k}</td><td class="border px-2 py-1">${v}</td></tr>`
-
-      rows.push(row("Company Name", company || ""))
-      rows.push(row("Current Monthly Revenue", mRevStr))
-      rows.push(row("Projected Annual Revenue (×12)", mRev ? fmtNum(mRev * 12) : ""))
-      rows.push(row("Current Monthly Expenses", mExpStr))
-      rows.push(row("Projected Annual Expenses (×12)", mExp ? fmtNum(mExp * 12) : ""))
-
-      const useRows = Array.isArray((planData as any).fundingUseBreakdown) ? (planData as any).fundingUseBreakdown : []
-      if (useRows.length) {
-        rows.push(`<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Expenses (planned use)</td></tr>`)
-        for (const r of useRows) {
-          rows.push(row(`• ${raw(r?.item ?? r?.category ?? r?.use)}`, raw(r?.amount)))
-        }
-      }
-
-      const netM = Number.isFinite(mRev - mExp) ? fmtNum(mRev - mExp) : ""
-      const netY = Number.isFinite((mRev - mExp) * 12) ? fmtNum((mRev - mExp) * 12) : ""
-      rows.push(row("Net Profit / (Loss) – Monthly", netM))
-      rows.push(row("Net Profit / (Loss) – Annual", netY))
-
-      const investStr = raw((planData as any).initialInvestment)
-      rows.push(row("Initial Investment", investStr))
-
-      const utilRows = Array.isArray((planData as any).investmentUtilization) ? (planData as any).investmentUtilization : []
-      if (utilRows.length) {
-        rows.push(`<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Initial Investment</td></tr>`)
-        for (const r of utilRows) rows.push(row(`• ${raw(r?.item ?? r?.category ?? r?.use)}`, raw(r?.amount)))
-      }
-
-      const fundingReceivedStr = raw((planData as any).fundingReceived) || "—"
-      const fundingNeededStr = raw((planData as any).fundingNeeded) || "—"
-      rows.push(row("External Funding Received", fundingReceivedStr))
-      rows.push(row("Funding Requirement", fundingNeededStr))
-
-      return `<div class="mb-3">
-        <h3 class="font-semibold text-lg mb-2">Startup Revenue Statement</h3>
-        <table class="w-full table-auto border-collapse border">
-          <thead><tr>
-            <th class="border px-2 py-1 text-left bg-gray-50">Metric</th>
-            <th class="border px-2 py-1 text-left bg-gray-50">Value</th>
-          </tr></thead>
-          <tbody>${rows.join("")}</tbody>
-        </table>
-      </div>`
-    }
-
-
-    const sectionHTML: string[] = []
-
-    for (const section of sections) {
-      const gpSec: any = (generatedPlan as any)[section.key] || {}
-      const parts: string[] = []
-
-      if (section.key === "executiveSummary") {
-        if (gpSec?.businessOverview) {
-          parts.push(`<h3 class="font-semibold text-lg mb-2">Business Overview</h3>` + joinParas(gpSec.businessOverview))
-        }
-        if (gpSec?.ourMission) {
-          parts.push(`<h3 class="font-semibold text-lg mb-2">Our Mission</h3><p>${esc(gpSec.ourMission)}</p>`)
-        }
-        if (gpSec?.funding) {
-          const f = gpSec.funding || {}
-          if (f.p1) parts.push(`<h3 class="font-semibold text-lg mb-2">Funding Requirements</h3><p>${esc(f.p1)}</p>`)
-          if (Array.isArray(f.usageOfFunds) && f.usageOfFunds.length) {
-            parts.push(tableFromArray("Usage of Funds", f.usageOfFunds))
-          }
-          if (f.p2) parts.push(`<p>${esc(f.p2)}</p>`)
-        }
-        if (gpSec?.problemStatement) {
-          parts.push(`<h3 class="font-semibold text-lg mb-2">Problem Statement</h3><p>${esc(gpSec.problemStatement)}</p>`)
-        }
-        if (gpSec?.solution) {
-          parts.push(`<h3 class="font-semibold text-lg mb-2">Solution</h3><p>${esc(gpSec.solution)}</p>`)
-        }
-      } else if (section.key === "swot") {
-        const blocks = [
-          ["Strengths / Success Drivers", gpSec?.strengths],
-          ["Weaknesses", gpSec?.weaknesses],
-          ["Opportunities", gpSec?.opportunities],
-          ["Threats", gpSec?.threats],
-        ]
-        for (const [title, arr] of blocks) {
-          if (Array.isArray(arr) && arr.length) parts.push(listBlock(String(title), arr))
-        }
-      } else if (section.key === "financialPlan") {
-        // Render only the subsections we kept, with a custom renderer for revenueStatement
-        for (const sub of section.subsections || []) {
-          if (sub.key === "revenueStatement") {
-            parts.push(revenueStatementHTML())
-            continue
-          }
-          const raw = gpSec?.[sub.key]
-          if (raw == null || raw === "") continue
-
-          if (typeof raw === "string") {
-            parts.push(`<h3 class="font-semibold text-lg mb-2">${esc(sub.title)}</h3><p>${esc(raw)}</p>`)
-            continue
-          }
-          if (Array.isArray(raw)) {
-            parts.push(tableFromArray(sub.title, raw))
-            continue
-          }
-          if (typeof raw === "object") {
-            const rows = Object.entries(raw).map(([k, v]) => ({ Field: k, Value: (typeof v === "string" ? v : JSON.stringify(v)) }))
-            parts.push(tableFromArray(sub.title, rows))
-            continue
-          }
-        }
-      } else {
-        for (const sub of section.subsections || []) {
-          const raw = gpSec?.[sub.key]
-          if (raw == null || raw === "") continue
-
-          if (typeof raw === "string") {
-            parts.push(`<h3 class="font-semibold text-lg mb-2">${esc(sub.title)}</h3><p>${esc(raw)}</p>`)
-            continue
-          }
-
-          if (Array.isArray(raw)) {
-            const allSimple = raw.every((v: any) => typeof v === "string" || (v && typeof v === "object" && ("Item" in v || "item" in v)))
-            if (allSimple) {
-              parts.push(listBlock(sub.title, raw))
-            } else {
-              parts.push(tableFromArray(sub.title, raw))
-            }
-            continue
-          }
-
-          if (typeof raw === "object") {
-            const rows = Object.entries(raw).map(([k, v]) => ({ Field: k, Value: (typeof v === "string" ? v : JSON.stringify(v)) }))
-            parts.push(tableFromArray(sub.title, rows))
-            continue
-          }
-        }
-      }
-
-      if (parts.length) {
-        sectionHTML.push(
-          `<section id="${esc(section.key)}" class="mb-8">` +
-            `<h2 class="text-2xl font-bold mb-3">${esc(section.title)}</h2>` +
-            parts.join("") +
-          `</section>`
-        )
-      }
-    }
-    return sectionHTML.join("")
-  }
 
   return (
     <div className="flex h-screen bg-gray-50">
@@ -670,24 +366,6 @@ export function PlanOutput(props: PlanOutputProps) {
           <div className="max-w-3xl mx-auto flex items-center justify-between">
             <div />
             <div className="flex items-center space-x-2">
-              {/* Mode toggle */}
-              <Button
-                variant={mode === "preview" ? "default" : "outline"}
-                size="sm"
-                className="rounded-2xl px-4 py-2"
-                onClick={() => setMode("preview")}
-              >
-                Typed Preview
-              </Button>
-              <Button
-                variant={mode === "edit" ? "default" : "outline"}
-                size="sm"
-                className="rounded-2xl px-4 py-2"
-                onClick={() => setMode("edit")}
-              >
-                Edit Mode
-              </Button>
-
               <Link href="/dashboard">
                 <Button variant="outline" size="sm" className="rounded-2xl px-4 py-2">
                   Back to Dashboard
@@ -707,21 +385,7 @@ export function PlanOutput(props: PlanOutputProps) {
         {/* Sections */}
         <div className="px-6 pt-2 pb-0">
           <div className="max-w-3xl mx-auto space-y-6">
-            {/* Full-page typed preview */}
-            {mode === "preview" ? (
-              <div className="prose max-w-none">
-                <TypewriterHTML
-                  html={buildFullPlanHTML()}
-                  durationMs={100000}
-                  targetSegments={32}
-                  startDelayMs={0}
-                  cursor
-                />
-              </div>
-            ) : null}
-
-            {/* Interactive editor with Ask to AI + inline edits */}
-            {mode === "edit" && sections.map((section) => {
+            {sections.map((section) => {
               const Icon = section.icon
               return (
                 <section id={section.key} key={section.key} className="scroll-mt-20">
@@ -989,7 +653,7 @@ export function PlanOutput(props: PlanOutputProps) {
                           </div>
                         </>
                       ) : (
-                        /* ───────────────────────────── Generic renderer + custom financial revenueStatement ───────────────────────────── */
+                        /* ───────────────────────────── Generic renderer for all other sections ───────────────────────────── */
                         section.subsections.map(({ key: subKey, title }) => {
                           // Deterministic JSX for legal/ownership + founding team
                           if (section.key === "companyOverview" && subKey === "legalStructureOwnership") {
@@ -1013,20 +677,17 @@ export function PlanOutput(props: PlanOutputProps) {
                             )
                           }
 
-                          // 👉 NEW: Revenue Statement computed from quiz answers
-                          if (section.key === "financialPlan" && subKey === "revenueStatement") {
-                            return <RevenueStatementTable key={subKey} planData={planData} />
-                          }
+                          // Generic renderer: arrays => bullets (for SWOT) or table; strings/objects => markdown + inline edit
+                         const raw = (generatedPlan as any)[section.key]?.[subKey];
 
-                          // SWOT arrays → bullets
+                          // 👉 SWOT arrays (strings or { Item } or { item }) → manual bullets
                           if (section.key === "swot") {
-                            const raw = (generatedPlan as any)[section.key]?.[subKey]
                             const list =
                               Array.isArray(raw)
                                 ? raw.map((v: any) =>
                                     typeof v === "string" ? v : (v?.Item ?? v?.item ?? "")
                                   ).filter(Boolean)
-                                : []
+                                : [];
 
                             return (
                               <div key={subKey} className="space-y-2">
@@ -1055,11 +716,10 @@ export function PlanOutput(props: PlanOutputProps) {
                                   <p className="text-sm text-gray-500">No items available.</p>
                                 )}
                               </div>
-                            )
+                            );
                           }
 
-                          // Any other arrays (arrays of objects) → table
-                          const raw = (generatedPlan as any)[section.key]?.[subKey]
+                          // 👉 Any other arrays (arrays of objects) → table
                           if (Array.isArray(raw)) {
                             return (
                               <div key={subKey} className="space-y-2">
@@ -1091,7 +751,7 @@ export function PlanOutput(props: PlanOutputProps) {
                                   </table>
                                 )}
                               </div>
-                            )
+                            );
                           }
 
                           const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)

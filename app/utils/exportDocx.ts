@@ -110,11 +110,6 @@ function runsFromInlineMarkdown(text: string): TextRun[] {
 }
 
 // Render a block of markdown-ish text into Paragraph[]
-// Supports:
-// - blank line = spacer
-// - line "**Heading**" = bold line (BodyText style)
-// - line "- item" = bullet
-// - everything else = normal paragraph
 function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
   const style = opts?.bodyStyle ?? "BodyText";
   const lines = (stripEmojis(text ?? "") || "").replace(/\r\n/g, "\n").split("\n");
@@ -161,6 +156,14 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
 
   return out;
 }
+
+// 👉 Small helper to create a bullet paragraph directly
+const bullet = (text: string) =>
+  new Paragraph({
+    children: runsFromInlineMarkdown(stripEmojis(text || "")),
+    style: "BulletText",
+    bullet: { level: 0, reference: "SmallCircle" },
+  });
 
 // ──────────────────────────────────────────────────────────────
 // Deterministic label helpers (for legal structure text, etc.)
@@ -260,7 +263,7 @@ export async function exportBusinessPlanDocx(
   const totalPct = usageRows.reduce((a, r) => a + (parseFloat(String(r.allocationPercent).replace("%", "")) || 0), 0);
 
   // ──────────────────────────────────────────────────────────────
-  // NEW: Deterministic content for Legal & Founding Team from planData
+  // Deterministic content for Legal & Founding Team from planData
   // ──────────────────────────────────────────────────────────────
   const owners = Array.isArray(planData.ownership) ? planData.ownership : [];
   const ownershipLines = owners
@@ -295,6 +298,49 @@ export async function exportBusinessPlanDocx(
           })
           .join("\n")
       : "- Not specified";
+
+  // ──────────────────────────────────────────────────────────────
+  // Helpers for Revenue Statement (show raw strings, compute totals without symbols)
+  // ──────────────────────────────────────────────────────────────
+  const raw = (v: any) => String(v ?? "").trim();
+  const parseN = (v: any) => Number(String(v ?? "").replace(/[^\d.-]/g, ""));
+  const fmtNum = (n: number) =>
+    Number.isFinite(n) ? new Intl.NumberFormat("en-US").format(Math.round(n)) : "";
+
+  // Pull values (prefer quiz planData; fall back to plan if needed)
+  const companyName =
+    planData?.businessName || planBusinessName || planCompanyName || "";
+
+  const monthlyRevenueStr =
+    raw((planData as any)?.monthlyRevenue) || raw(safePlan?.monthlyRevenue);
+  const monthlyExpensesStr =
+    raw((planData as any)?.monthlyExpenses) || "";
+
+  const mRevN = parseN(monthlyRevenueStr);
+  const mExpN = parseN(monthlyExpensesStr);
+
+  const projectedAnnualRevenue = mRevN ? fmtNum(mRevN * 12) : "";
+  const projectedAnnualExpenses = mExpN ? fmtNum(mExpN * 12) : "";
+
+  const netMonthly = Number.isFinite(mRevN - mExpN) ? fmtNum(mRevN - mExpN) : "";
+  const netAnnual = Number.isFinite((mRevN - mExpN) * 12) ? fmtNum((mRevN - mExpN) * 12) : "";
+
+  const initialInvestmentStr =
+    raw((planData as any)?.initialInvestment) || raw(safePlan?.initialInvestment);
+  const fundingReceivedStr =
+    raw((planData as any)?.fundingReceived) || raw(safePlan?.fundingReceived) || "—";
+  const fundingNeededStr =
+    raw((planData as any)?.fundingNeeded) || raw(safePlan?.fundingNeeded) || "—";
+
+  const expenseBreakdown =
+    Array.isArray((planData as any)?.fundingUseBreakdown)
+      ? (planData as any).fundingUseBreakdown
+      : [];
+
+  const initUtilBreakdown =
+    Array.isArray((planData as any)?.investmentUtilization)
+      ? (planData as any).investmentUtilization
+      : [];
 
   const doc = new Document({
     styles: {
@@ -357,7 +403,7 @@ export async function exportBusinessPlanDocx(
           paragraph: { spacing: { line: 276, after: 100 }, alignment: AlignmentType.JUSTIFIED },
         },
 
-        // Bullet paragraph style (used by md() for "- ..." lines)
+        // Bullet paragraph style (used by md() & bullet())
         {
           id: "BulletText",
           name: "Bullet Text",
@@ -497,6 +543,144 @@ export async function exportBusinessPlanDocx(
           H2("Solution"),
           ...md(executiveSummary.solution, { bodyStyle: "BodyText" }),
 
+          // NEW: Startup Revenue Statement (from quiz inputs; show raw amounts as entered)
+          H2("Startup Revenue Statement"),
+          new Table({
+            style: "BusinessPlanTable",
+            alignment: AlignmentType.CENTER,
+            rows: [
+              // Header
+              new TableRow({
+                children: [
+                  new TableCell({
+                    width: { size: 5000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Metric", style: "BodyText" })],
+                  }),
+                  new TableCell({
+                    width: { size: 5000, type: WidthType.DXA },
+                    shading: { fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Value", style: "BodyText" })],
+                  }),
+                ],
+              }),
+              // Rows
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Company Name", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: companyName, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Revenue", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: monthlyRevenueStr, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Revenue (×12)", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: projectedAnnualRevenue, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Expenses", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: monthlyExpensesStr, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Expenses (×12)", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: projectedAnnualExpenses, style: "BodyText" })] }),
+                ],
+              }),
+
+              // Optional: Breakdown of Expenses (planned use)
+              ...(expenseBreakdown.length
+                ? [
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          shading: { fill: "F5F5F5" },
+                          children: [new Paragraph({ children: [new TextRun({ text: "Breakdown of Expenses (planned use)", bold: true })], style: "BodyText" })],
+                        }),
+                        new TableCell({ shading: { fill: "F5F5F5" }, children: [new Paragraph({ text: "", style: "BodyText" })] }),
+                      ],
+                    }),
+                    ...expenseBreakdown.map((r: any) =>
+                      new TableRow({
+                        children: [
+                          new TableCell({
+                            children: [new Paragraph({ text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`, style: "BodyText" })],
+                          }),
+                          new TableCell({ children: [new Paragraph({ text: raw(r?.amount), style: "BodyText" })] }),
+                        ],
+                      })
+                    ),
+                  ]
+                : []),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Monthly", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: netMonthly, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Annual", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: netAnnual, style: "BodyText" })] }),
+                ],
+              }),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Initial Investment", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: initialInvestmentStr, style: "BodyText" })] }),
+                ],
+              }),
+
+              // Optional: Breakdown of Initial Investment
+              ...(initUtilBreakdown.length
+                ? [
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          shading: { fill: "F5F5F5" },
+                          children: [new Paragraph({ children: [new TextRun({ text: "Breakdown of Initial Investment", bold: true })], style: "BodyText" })],
+                        }),
+                        new TableCell({ shading: { fill: "F5F5F5" }, children: [new Paragraph({ text: "", style: "BodyText" })] }),
+                      ],
+                    }),
+                    ...initUtilBreakdown.map((r: any) =>
+                      new TableRow({
+                        children: [
+                          new TableCell({
+                            children: [new Paragraph({ text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`, style: "BodyText" })],
+                          }),
+                          new TableCell({ children: [new Paragraph({ text: raw(r?.amount), style: "BodyText" })] }),
+                        ],
+                      })
+                    ),
+                  ]
+                : []),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "External Funding Received", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: fundingReceivedStr, style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Funding Requirement", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: fundingNeededStr, style: "BodyText" })] }),
+                ],
+              }),
+            ],
+          }),
+
           // 2. Company Overview
           H1("Company Overview"),
           Spacer(),
@@ -505,14 +689,26 @@ export async function exportBusinessPlanDocx(
           H2("Mission Statement"),
           ...md(missionWithMilestone, { bodyStyle: "BodyText" }),
 
-          // ⬇️ UPDATED: Use deterministic sections from planData ⬇️
+          // Deterministic sections from planData
           H2("Legal Structure & Ownership"),
           ...md(legalMd, { bodyStyle: "BodyText" }),
           H2("Founding Team"),
           ...md(foundingMd, { bodyStyle: "BodyText" }),
-          // ⬆️ UPDATED ⬆️
 
-          // 3. Products
+          // 3. SWOT Analysis (NEW) — placed right after Company Overview
+          H1("SWOT Analysis"),
+          Spacer(),
+          H2("Strengths / Success Drivers"),
+          ...((safePlan?.swot?.strengths || []).map((r: any) => bullet(r?.Item || String(r)))),
+          H2("Weaknesses"),
+          ...((safePlan?.swot?.weaknesses || []).map((r: any) => bullet(r?.Item || String(r)))),
+          // NEW: Opportunities & Threats bullets
+          H2("Opportunities"),
+          ...((safePlan?.swot?.opportunities || []).map((r: any) => bullet(String(r)))),
+          H2("Threats"),
+          ...((safePlan?.swot?.threats || []).map((r: any) => bullet(String(r)))),
+
+          // 4. Products
           H1("Products"),
           Spacer(),
           H2("Overview"),
@@ -537,7 +733,7 @@ export async function exportBusinessPlanDocx(
           H2("Intellectual Property & Regulatory Status"),
           new Paragraph({ text: products.intellectualPropertyRegulatoryStatus, style: "BodyText" }),
 
-          // 4. Market Analysis
+          // 5. Market Analysis
           H1("Market Analysis"),
           Spacer(),
           H2("Industry Overview & Size"),
@@ -557,7 +753,7 @@ export async function exportBusinessPlanDocx(
           H2("Barriers to Entry"),
           new Paragraph({ text: marketAnalysis.barriersToEntry, style: "BodyText" }),
 
-          // 5. Marketing & Sales Strategies
+          // 6. Marketing & Sales Strategies
           H1("Marketing & Sales Strategies"),
           Spacer(),
           H2("Distribution Channels"),
@@ -571,7 +767,7 @@ export async function exportBusinessPlanDocx(
           H2("Integrated Funnel & Financial Impact"),
           new Paragraph({ text: marketingSalesStrategies.integratedFunnelFinancialImpact, style: "BodyText" }),
 
-          // 6. Operations Plan
+          // 7. Operations Plan
           H1("Operations Plan"),
           Spacer(),
           H2("Overview"),
@@ -587,7 +783,7 @@ export async function exportBusinessPlanDocx(
           H2("Key Performance Metrics & Goals"),
           new Paragraph({ text: operationsPlan.keyPerformanceMetricsGoals, style: "BodyText" }),
 
-          // 7. Management & Organization
+          // 8. Management & Organization
           H1("Management & Organization"),
           Spacer(),
           H2("Overview"),
@@ -597,7 +793,7 @@ export async function exportBusinessPlanDocx(
           H2("Hiring Plan & Key Roles"),
           new Paragraph({ text: managementOrganization.hiringPlanKeyRoles, style: "BodyText" }),
 
-          // 8. Financial Plan
+          // 9. Financial Plan
           H1("Financial Plan"),
           Spacer(),
           H2("Overview"),
@@ -802,7 +998,7 @@ export async function exportBusinessPlanDocx(
           H2("Summary & Outlook"),
           new Paragraph({ text: financialPlan.summaryOutlook, style: "BodyText" }),
 
-          // 9. Risk Analysis & Mitigation
+          // 10. Risk Analysis & Mitigation
           H1("Risk Analysis & Mitigation"),
           Spacer(),
           H2("Overview"),
@@ -818,7 +1014,7 @@ export async function exportBusinessPlanDocx(
           H2("Contingency Plans"),
           new Paragraph({ text: riskAnalysisMitigation.contingencyPlans, style: "BodyText" }),
 
-          // 10. Appendices
+          // 11. Appendices
           H1("Appendices"),
           Spacer(),
           H2("Glossary"),

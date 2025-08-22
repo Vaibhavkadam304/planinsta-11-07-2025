@@ -4,6 +4,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import { cookies } from "next/headers"
 import OpenAI from "openai"
 import { z } from "zod"
+import { jsonrepair } from "jsonrepair" // ⬅️ NEW
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
 
 // ──────────────────────────────────────────────────────────────
@@ -31,6 +32,8 @@ const setByPath = (obj: any, path: string, value: string) => {
   parent[last] = value
 }
 
+
+
 const wc = (s: string) => (s || "").trim().split(/\s+/).filter(Boolean).length
 
 function takeFirstWords(s: string, maxWords: number) {
@@ -44,6 +47,145 @@ function stripEmojis(s: string) {
     return (s || "").replace(/[\p{Extended_Pictographic}]/gu, "")
   } catch {
     return s || ""
+  }
+}
+
+// ⬇️ NEW: ultra-robust parsing + a safe fallback plan
+function safeJsonParse(input: string): any | null {
+  if (!input) return null
+
+  // 1) Try direct
+  try { return JSON.parse(input) } catch {}
+
+  // 2) ```json ... ```
+  const fenced = input.match(/```json\s*([\s\S]*?)```/i)
+  if (fenced?.[1]) {
+    try { return JSON.parse(fenced[1]) } catch {}
+    try { return JSON.parse(jsonrepair(fenced[1])) } catch {}
+  }
+
+  // 3) slice outermost braces
+  const s = input.indexOf("{")
+  const e = input.lastIndexOf("}")
+  if (s !== -1 && e !== -1 && e > s) {
+    const inner = input.slice(s, e + 1)
+    try { return JSON.parse(inner) } catch {}
+    try { return JSON.parse(jsonrepair(inner)) } catch {}
+  }
+
+  // 4) repair whole blob
+  try { return JSON.parse(jsonrepair(input)) } catch {}
+
+  return null
+}
+
+function buildFallbackPlan(planData: any) {
+  const fundingNeeded = String(planData?.fundingNeeded ?? "0")
+  return {
+    initialInvestment: String(planData?.initialInvestment ?? ""),
+    fundingNeeded,
+    fundingReceived: String(planData?.fundingReceived ?? ""),
+    monthlyRevenue: String(planData?.monthlyRevenue ?? ""),
+    investmentUtilization: Array.isArray(planData?.investmentUtilization) ? planData.investmentUtilization : [],
+
+    notes: String(planData?.notes ?? ""),
+    upcomingMilestone: String(planData?.upcomingMilestone ?? ""),
+
+    coverPage: { logo: "" },
+    executiveSummary: {
+      businessOverview: "Draft overview (LLM output failed to parse).",
+      ourMission: "—",
+      funding: {
+        p1: "",
+        usageOfFunds: [
+          {
+            department: "Working capital and contingency",
+            allocationPercent: 100,
+            amount: fundingNeeded,
+            howUsed: "Buffer until detailed breakdown is provided",
+          },
+        ],
+        p2: "",
+      },
+      problemStatement: "—",
+      solution: "—",
+    },
+    companyOverview: {
+      visionStatement: "—",
+      missionStatement: "—",
+      legalStructureOwnership: "",
+      foundingTeam: "",
+    },
+    products: {
+      overview: "",
+      product1: "", product2: "", product3: "", product4: "", product5: "",
+      product6: "", product7: "", product8: "", product9: "", product10: "",
+      uniqueSellingPropositions: "",
+      developmentRoadmap: "",
+      intellectualPropertyRegulatoryStatus: "",
+    },
+    marketAnalysis: {
+      industryOverviewSize: "",
+      growthTrendsDrivers: "",
+      underlyingBusinessDrivers: "",
+      targetMarketSegmentation: "",
+      customerPersonasNeeds: "",
+      competitiveLandscapePositioning: "",
+      productsDifferentiation: "",
+      barriersToEntry: "",
+    },
+    marketingSalesStrategies: {
+      distributionChannels: "",
+      technologyCostStructure: "",
+      customerPricingStructure: "",
+      retentionStrategies: "",
+      integratedFunnelFinancialImpact: "",
+    },
+    operationsPlan: {
+      overview: "",
+      organizationalStructureTeamResponsibilities: "",
+      infrastructure: "",
+      customerOnboardingToRenewalWorkflow: "",
+      crossFunctionalCommunicationDecisionMaking: "",
+      keyPerformanceMetricsGoals: "",
+    },
+    managementOrganization: {
+      overview: "",
+      organizationalChart: "",
+      hiringPlanKeyRoles: "",
+    },
+    financialPlan: {
+      overview: "",
+      keyAssumptions: "",
+      revenueForecast: [],
+      cogs: [],
+      opEx: [],
+      projectedPnl: [],
+      cashFlowRunwayAnalysis: [],
+      keyFinancialMetricsRatios: "",
+      useOfFundsRunway: "",
+      keySensitivityRiskScenarios: "",
+      summaryOutlook: "",
+    },
+    riskAnalysisMitigation: {
+      overview: "",
+      marketRisks: "",
+      operationalRisks: "",
+      regulatoryLegalRisks: "",
+      financialRisks: "",
+      contingencyPlans: "",
+    },
+    swot: {
+      strengths: [],
+      weaknesses: [],
+      opportunities: [],
+      threats: [],
+    },
+    appendices: {
+      glossary: "",
+      managementTeamsResources: "",
+      projectedFinancesTables: "",
+    },
   }
 }
 
@@ -507,8 +649,6 @@ function enforceInclusions(plan: any, formData: any) {
     }
     plan.products.uniqueSellingPropositions = uspText
   }
-
-
 }
 
 // ──────────────────────────────────────────────────────────────
@@ -646,6 +786,14 @@ const businessPlanSchema = z.object({
     regulatoryLegalRisks: S(),
     financialRisks: S(),
     contingencyPlans: S(),
+  }).default({}),
+
+  // NEW: SWOT (arrays of strings)
+  swot: z.object({
+    strengths: z.array(S()).default([]),
+    weaknesses: z.array(S()).default([]),
+    opportunities: z.array(S()).default([]),
+    threats: z.array(S()).default([]),
   }).default({}),
 
   appendices: z.object({
@@ -787,6 +935,13 @@ Append this note verbatim as the LAST sentence of **Appendices → Management Te
 "${(formData as any).notes}".`
       : ""
 
+    // NEW: SWOT seeds for the model
+    const swotSeed = `
+SWOT SEEDS (if present; rewrite professionally, do not copy verbatim):
+- Success drivers (strengths seeds): ${(formData.successDrivers || []).filter(Boolean).join(" | ") || "none"}
+- Weaknesses (weaknesses seeds): ${(formData.weaknesses || []).filter(Boolean).join(" | ") || "none"}
+`
+
     const systemPrompt = `You are an expert business-plan writer who produces polished, investor-ready documents.
 
 TASK: Generate a JSON object that matches exactly this shape (no extra keys or markdown in keys not stated as markdown-capable):
@@ -877,6 +1032,12 @@ TASK: Generate a JSON object that matches exactly this shape (no extra keys or m
     "financialRisks": string,
     "contingencyPlans": string
   },
+  "swot": {
+    "strengths": [ string ],
+    "weaknesses": [ string ],
+    "opportunities": [ string ],
+    "threats": [ string ]
+  },
   "appendices": {
     "glossary": string,
     "managementTeamsResources": string,
@@ -903,7 +1064,13 @@ RULES:
    - For each product (product1..product10): ~35–55 words total with 3–4 markdown bullets covering:
      • Core features • Integrations • Target users/industries • Primary use case OR quantified benefit
 5) Currency/amount strings must be digits/commas only (no symbols). UI may add currency symbols.
-6) No emojis anywhere.`
+6) No emojis anywhere.
+7) SWOT (use company context + any successDrivers/weaknesses the user entered as seeds; rewrite them cleanly):
+   - strengths: 4–6 concise bullets, each **2–3 sentences** (no numbering; ~30–60 words).
+   - weaknesses: 4–6 concise bullets, each **2–3 sentences** (no numbering; ~30–60 words).
+   - opportunities: 4–6 concise bullets, each **2–3 sentences**, drawn from market/industry inputs.
+   - threats: 4–6 concise bullets, each **2–3 sentences**, drawn from competitive/regulatory/tech risks.
+   - Return as arrays of strings. No markdown headings, no numbering.`
 
     const userPrompt = `Generate a comprehensive business plan using this form input.
 
@@ -913,6 +1080,7 @@ ${achievementsWeaveHint}
 ${financeFacts}
 ${mileageHintPlaceholder() /* keeps TS happy if removed later */}${milestoneHint}
 ${notesHint}
+${swotSeed}
 
 FORM DATA:
 ${JSON.stringify(formData, null, 2)}
@@ -966,24 +1134,12 @@ Be sure to include the full 'products' section with overview, ten product entrie
       }
     }
 
-    // Parse JSON
-    let raw = completion.choices?.[0]?.message?.content!
-    if (!raw) throw new Error("OpenAI returned no content")
+    // Parse JSON (robust; never throws)
+    let raw = completion.choices?.[0]?.message?.content || ""
     raw = stripFences(raw)
-    {
-      const start = raw.indexOf("{")
-      const end = raw.lastIndexOf("}")
-      if (start !== -1 && end !== -1 && end > start) raw = raw.slice(start, end + 1)
-    }
-
-    let parsed: any
-    try {
-      parsed = JSON.parse(raw)
-    } catch (firstErr) {
-      const start = raw.indexOf("{")
-      const end = raw.lastIndexOf("}")
-      if (start === -1 || end === -1) throw firstErr
-      parsed = JSON.parse(raw.slice(start, end + 1))
+    let parsed: any = safeJsonParse(raw)
+    if (!parsed || typeof parsed !== "object") {
+      parsed = buildFallbackPlan(formData)
     }
 
     // Validate (robust defaults prevent "missing/undefined" crashes)
@@ -994,6 +1150,16 @@ Be sure to include the full 'products' section with overview, ten product entrie
       const key = `product${i}`
       planObject.products[key] = coerceProductToString(planObject.products[key])
     }
+
+    // ── SWOT soft fallback: seed from formData if the model skipped it or left empty
+    if (!Array.isArray(planObject.swot?.strengths) || planObject.swot.strengths.length === 0) {
+      planObject.swot = { ...(planObject.swot || {}), strengths: (formData.successDrivers || []).filter(Boolean) }
+    }
+    if (!Array.isArray(planObject.swot?.weaknesses) || planObject.swot.weaknesses.length === 0) {
+      planObject.swot = { ...(planObject.swot || {}), weaknesses: (formData.weaknesses || []).filter(Boolean) }
+    }
+    planObject.swot.opportunities ||= []
+    planObject.swot.threats ||= []
 
     // Ensure finance fields exist even if model skipped them
     planObject.initialInvestment ||= (formData as any).initialInvestment ?? ""
