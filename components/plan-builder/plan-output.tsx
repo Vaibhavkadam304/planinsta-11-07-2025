@@ -141,25 +141,17 @@ function FoundingTeamBlock({ data }: { data: BusinessPlanData }) {
 /* -------------------------------------------------------------------------- */
 
 function RevenueStatementTable({ planData }: { planData: BusinessPlanData }) {
-  const raw = (v: any) => String(v ?? "").trim()
-  const parseN = (v: any) => Number(String(v ?? "").replace(/[^\d.-]/g, ""))
-  const fmtNum = (n: number) =>
-    Number.isFinite(n) ? new Intl.NumberFormat("en-US").format(Math.round(n)) : ""
+  const company = String(planData.businessName ?? "").trim() || "—"
+  const mRev = num(planData.monthlyRevenue)
+  const mExp = num(planData.monthlyExpenses)
+  const yRev = mRev * 12
+  const yExp = mExp * 12
+  const netM = mRev - mExp
+  const netY = netM * 12
 
-  const company = raw((planData as any).businessName)
-
-  const mRevStr = raw((planData as any).monthlyRevenue)
-  const mExpStr = raw((planData as any).monthlyExpenses)
-  const mRev = parseN(mRevStr)
-  const mExp = parseN(mExpStr)
-  const yRevStr = mRev ? fmtNum(mRev * 12) : ""
-  const yExpStr = mExp ? fmtNum(mExp * 12) : ""
-  const netM = Number.isFinite(mRev - mExp) ? fmtNum(mRev - mExp) : ""
-  const netY = Number.isFinite((mRev - mExp) * 12) ? fmtNum((mRev - mExp) * 12) : ""
-
-  const investStr = raw((planData as any).initialInvestment)
-  const fundingReceivedStr = raw((planData as any).fundingReceived)
-  const fundingNeededStr = raw((planData as any).fundingNeeded)
+  const invest = num((planData as any).initialInvestment)
+  const fundingReceived = num((planData as any).fundingReceived)
+  const fundingNeeded = num((planData as any).fundingNeeded)
 
   const useRows = Array.isArray((planData as any).fundingUseBreakdown)
     ? (planData as any).fundingUseBreakdown
@@ -182,49 +174,47 @@ function RevenueStatementTable({ planData }: { planData: BusinessPlanData }) {
         <tbody>
           <tr><td className="border px-2 py-1">Company Name</td><td className="border px-2 py-1">{company}</td></tr>
 
-          <tr><td className="border px-2 py-1">Current Monthly Revenue</td><td className="border px-2 py-1">{mRevStr}</td></tr>
-          <tr><td className="border px-2 py-1">Projected Annual Revenue (×12)</td><td className="border px-2 py-1">{yRevStr}</td></tr>
+          <tr><td className="border px-2 py-1">Current Monthly Revenue</td><td className="border px-2 py-1">{mRev ? fmtINR(mRev) : "—"}</td></tr>
+          <tr><td className="border px-2 py-1">Projected Annual Revenue (×12)</td><td className="border px-2 py-1">{mRev ? fmtINR(yRev) : "—"}</td></tr>
 
-          <tr><td className="border px-2 py-1">Current Monthly Expenses</td><td className="border px-2 py-1">{mExpStr}</td></tr>
-          <tr><td className="border px-2 py-1">Projected Annual Expenses (×12)</td><td className="border px-2 py-1">{yExpStr}</td></tr>
+          <tr><td className="border px-2 py-1">Current Monthly Expenses</td><td className="border px-2 py-1">{mExp ? fmtINR(mExp) : "—"}</td></tr>
+          <tr><td className="border px-2 py-1">Projected Annual Expenses (×12)</td><td className="border px-2 py-1">{mExp ? fmtINR(yExp) : "—"}</td></tr>
 
           {useRows?.length ? (
             <>
               <tr><td className="border px-2 py-1 font-semibold" colSpan={2}>Breakdown of Expenses (planned use)</td></tr>
               {useRows.map((r: any, i: number) => (
                 <tr key={`use-${i}`}>
-                  <td className="border px-2 py-1">• {raw(r?.item ?? r?.category ?? r?.use)}</td>
-                  <td className="border px-2 py-1">{raw(r?.amount)}</td>
+                  <td className="border px-2 py-1">• {r?.item ?? r?.category ?? r?.use ?? "—"}</td>
+                  <td className="border px-2 py-1">{r?.amount ? fmtINR(num(r.amount)) : "—"}</td>
                 </tr>
               ))}
             </>
           ) : null}
 
-          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Monthly</td><td className="border px-2 py-1">{netM}</td></tr>
-          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Annual</td><td className="border px-2 py-1">{netY}</td></tr>
+          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Monthly</td><td className="border px-2 py-1">{(mRev || mExp) ? fmtINR(netM) : "—"}</td></tr>
+          <tr><td className="border px-2 py-1">Net Profit / (Loss) – Annual</td><td className="border px-2 py-1">{(mRev || mExp) ? fmtINR(netY) : "—"}</td></tr>
 
-          <tr><td className="border px-2 py-1">Initial Investment</td><td className="border px-2 py-1">{investStr}</td></tr>
-
+          <tr><td className="border px-2 py-1">Initial Investment</td><td className="border px-2 py-1">{invest ? fmtINR(invest) : "—"}</td></tr>
           {utilRows?.length ? (
             <>
               <tr><td className="border px-2 py-1 font-semibold" colSpan={2}>Breakdown of Initial Investment</td></tr>
               {utilRows.map((r: any, i: number) => (
                 <tr key={`util-${i}`}>
-                  <td className="border px-2 py-1">• {raw(r?.item ?? r?.category ?? r?.use)}</td>
-                  <td className="border px-2 py-1">{raw(r?.amount)}</td>
+                  <td className="border px-2 py-1">• {r?.item ?? r?.category ?? r?.use ?? "—"}</td>
+                  <td className="border px-2 py-1">{r?.amount ? fmtINR(num(r.amount)) : "—"}</td>
                 </tr>
               ))}
             </>
           ) : null}
 
-          <tr><td className="border px-2 py-1">External Funding Received</td><td className="border px-2 py-1">{fundingReceivedStr || "—"}</td></tr>
-          <tr><td className="border px-2 py-1">Funding Requirement</td><td className="border px-2 py-1">{fundingNeededStr || "—"}</td></tr>
+          <tr><td className="border px-2 py-1">External Funding Received</td><td className="border px-2 py-1">{fundingReceived ? fmtINR(fundingReceived) : "—"}</td></tr>
+          <tr><td className="border px-2 py-1">Funding Requirement</td><td className="border px-2 py-1">{fundingNeeded ? fmtINR(fundingNeeded) : "—"}</td></tr>
         </tbody>
       </table>
     </div>
   )
 }
-
 
 /* -------------------------------------------------------------------------- */
 /*                                   Component                                */
@@ -466,67 +456,70 @@ export function PlanOutput(props: PlanOutputProps) {
     }
 
     // Build the Revenue Statement HTML from planData
-    // Replace your revenueStatementHTML() with this:
     const revenueStatementHTML = () => {
-      const raw = (v: any) => String(v ?? "").trim()
-      const parseN = (v: any) => Number(String(v ?? "").replace(/[^\d.-]/g, ""))
-      const fmtNum = (n: number) =>
-        Number.isFinite(n) ? new Intl.NumberFormat("en-US").format(Math.round(n)) : ""
+      const company = String(planData.businessName ?? "").trim() || "—"
+      const mRev = num((planData as any).monthlyRevenue)
+      const mExp = num((planData as any).monthlyExpenses)
+      const yRev = mRev * 12
+      const yExp = mExp * 12
+      const netM = mRev - mExp
+      const netY = netM * 12
 
-      const company = raw(planData.businessName)
-      const mRevStr = raw((planData as any).monthlyRevenue)
-      const mExpStr = raw((planData as any).monthlyExpenses)
-      const mRev = parseN(mRevStr)
-      const mExp = parseN(mExpStr)
+      const invest = num((planData as any).initialInvestment)
+      const fundingReceived = num((planData as any).fundingReceived)
+      const fundingNeeded = num((planData as any).fundingNeeded)
 
-      const rows: string[] = []
-      const row = (k: string, v: string) => `<tr><td class="border px-2 py-1">${k}</td><td class="border px-2 py-1">${v}</td></tr>`
+      const useRows = Array.isArray((planData as any).fundingUseBreakdown)
+        ? (planData as any).fundingUseBreakdown
+        : []
 
-      rows.push(row("Company Name", company || ""))
-      rows.push(row("Current Monthly Revenue", mRevStr))
-      rows.push(row("Projected Annual Revenue (×12)", mRev ? fmtNum(mRev * 12) : ""))
-      rows.push(row("Current Monthly Expenses", mExpStr))
-      rows.push(row("Projected Annual Expenses (×12)", mExp ? fmtNum(mExp * 12) : ""))
+      const utilRows = Array.isArray((planData as any).investmentUtilization)
+        ? (planData as any).investmentUtilization
+        : []
 
-      const useRows = Array.isArray((planData as any).fundingUseBreakdown) ? (planData as any).fundingUseBreakdown : []
-      if (useRows.length) {
-        rows.push(`<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Expenses (planned use)</td></tr>`)
+      const row = (k: string, v: string) => `<tr><td class="border px-2 py-1">${esc(k)}</td><td class="border px-2 py-1">${esc(v)}</td></tr>`
+      const money = (n: number) => (n || n === 0) ? `₹${new Intl.NumberFormat("en-IN").format(Math.round(n))}` : "—"
+
+      let rows = ""
+      rows += row("Company Name", company)
+      rows += row("Current Monthly Revenue", mRev ? money(mRev) : "—")
+      rows += row("Projected Annual Revenue (×12)", mRev ? money(yRev) : "—")
+      rows += row("Current Monthly Expenses", mExp ? money(mExp) : "—")
+      rows += row("Projected Annual Expenses (×12)", mExp ? money(yExp) : "—")
+
+      if (useRows?.length) {
+        rows += `<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Expenses (planned use)</td></tr>`
         for (const r of useRows) {
-          rows.push(row(`• ${raw(r?.item ?? r?.category ?? r?.use)}`, raw(r?.amount)))
+          rows += row(`• ${String(r?.item ?? r?.category ?? r?.use ?? "—")}`, r?.amount ? money(num(r.amount)) : "—")
         }
       }
 
-      const netM = Number.isFinite(mRev - mExp) ? fmtNum(mRev - mExp) : ""
-      const netY = Number.isFinite((mRev - mExp) * 12) ? fmtNum((mRev - mExp) * 12) : ""
-      rows.push(row("Net Profit / (Loss) – Monthly", netM))
-      rows.push(row("Net Profit / (Loss) – Annual", netY))
+      rows += row("Net Profit / (Loss) – Monthly", (mRev || mExp) ? money(netM) : "—")
+      rows += row("Net Profit / (Loss) – Annual", (mRev || mExp) ? money(netY) : "—")
 
-      const investStr = raw((planData as any).initialInvestment)
-      rows.push(row("Initial Investment", investStr))
-
-      const utilRows = Array.isArray((planData as any).investmentUtilization) ? (planData as any).investmentUtilization : []
-      if (utilRows.length) {
-        rows.push(`<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Initial Investment</td></tr>`)
-        for (const r of utilRows) rows.push(row(`• ${raw(r?.item ?? r?.category ?? r?.use)}`, raw(r?.amount)))
+      rows += row("Initial Investment", invest ? money(invest) : "—")
+      if (utilRows?.length) {
+        rows += `<tr><td class="border px-2 py-1 font-semibold" colspan="2">Breakdown of Initial Investment</td></tr>`
+        for (const r of utilRows) {
+          rows += row(`• ${String(r?.item ?? r?.category ?? r?.use ?? "—")}`, r?.amount ? money(num(r.amount)) : "—")
+        }
       }
-
-      const fundingReceivedStr = raw((planData as any).fundingReceived) || "—"
-      const fundingNeededStr = raw((planData as any).fundingNeeded) || "—"
-      rows.push(row("External Funding Received", fundingReceivedStr))
-      rows.push(row("Funding Requirement", fundingNeededStr))
+      rows += row("External Funding Received", fundingReceived ? money(fundingReceived) : "—")
+      rows += row("Funding Requirement", fundingNeeded ? money(fundingNeeded) : "—")
 
       return `<div class="mb-3">
         <h3 class="font-semibold text-lg mb-2">Startup Revenue Statement</h3>
         <table class="w-full table-auto border-collapse border">
-          <thead><tr>
-            <th class="border px-2 py-1 text-left bg-gray-50">Metric</th>
-            <th class="border px-2 py-1 text-left bg-gray-50">Value</th>
-          </tr></thead>
-          <tbody>${rows.join("")}</tbody>
+          <thead>
+            <tr>
+              <th class="border px-2 py-1 text-left bg-gray-50">Metric</th>
+              <th class="border px-2 py-1 text-left bg-gray-50">Value</th>
+            </tr>
+          </thead>
+          <tbody>${rows}</tbody>
         </table>
       </div>`
     }
-
 
     const sectionHTML: string[] = []
 

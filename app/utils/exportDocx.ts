@@ -19,6 +19,9 @@ import {
 import { saveAs } from "file-saver";
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient";
 
+/** Toggle legacy Financial Plan tables (Revenue Forecast, COGS, OpEx, P&L, Cash Flow) */
+const SHOW_LEGACY_FINANCIAL_TABLES = true;
+
 const coercePlan = (input: any) => {
   try {
     if (!input) return {};
@@ -41,7 +44,7 @@ const makeSafe = (obj: any) => {
     "opEx",
     "projectedPnl",
     "cashFlowRunwayAnalysis",
-    // NEW: ensure funding.usageOfFunds is always an array
+    // ensure funding.usageOfFunds is always an array
     "usageOfFunds",
   ]);
   const SECTION_KEYS = new Set([
@@ -55,7 +58,7 @@ const makeSafe = (obj: any) => {
     "financialPlan",
     "riskAnalysisMitigation",
     "appendices",
-    // NEW: treat nested funding as a sub-section
+    // nested funding as a sub-section
     "funding",
   ]);
 
@@ -100,11 +103,8 @@ function runsFromInlineMarkdown(text: string): TextRun[] {
   const runs: TextRun[] = [];
   parts.forEach((part, idx) => {
     if (!part) return;
-    if (idx % 2 === 1) {
-      runs.push(new TextRun({ text: part, bold: true }));
-    } else {
-      runs.push(new TextRun({ text: part }));
-    }
+    if (idx % 2 === 1) runs.push(new TextRun({ text: part, bold: true }));
+    else runs.push(new TextRun({ text: part }));
   });
   return runs.length ? runs : [new TextRun({ text: t })];
 }
@@ -141,10 +141,7 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
         new Paragraph({
           children: runsFromInlineMarkdown(t),
           style: "BulletText",
-          bullet: {
-            level: 0,
-            reference: "SmallCircle",
-          },
+          bullet: { level: 0, reference: "SmallCircle" },
         })
       );
       continue;
@@ -182,7 +179,7 @@ const labelizeLegal = (s?: string) => {
     "sole proprietorship": "Sole Proprietorship",
     "private limited": "Private Limited Company",
     "pvt ltd": "Private Limited Company",
-    "llp": "Limited Liability Partnership (LLP)",
+    llp: "Limited Liability Partnership (LLP)",
   };
   return map[t] || titleCase(t);
 };
@@ -234,70 +231,36 @@ export async function exportBusinessPlanDocx(
   // Headings helpers (real built-in heading levels for TOC)
   const H1 = (text: string) =>
     new Paragraph({ text, heading: HeadingLevel.HEADING_1, pageBreakBefore: true });
-  const H2 = (text: string) =>
-    new Paragraph({ text, heading: HeadingLevel.HEADING_2 });
+  const H2 = (text: string) => new Paragraph({ text, heading: HeadingLevel.HEADING_2 });
 
   // Visual spacer between a main section (H1) and its first H2
-  const Spacer = () =>
-    new Paragraph({ text: "", spacing: { after: 200 } });
+  const Spacer = () => new Paragraph({ text: "", spacing: { after: 200 } });
 
   // Compose Mission text with optional upcoming milestone (from quiz)
   const missionWithMilestone =
     (companyOverview.missionStatement || "") +
-    (planData?.upcomingMilestone
-      ? `\n\nUpcoming milestone: ${planData.upcomingMilestone}`
-      : "");
+    (planData?.upcomingMilestone ? `\n\nUpcoming milestone: ${planData.upcomingMilestone}` : "");
 
   // Build Usage of Funds table rows from exec summary funding
-  const usageRows: Array<{ department: string; allocationPercent: string; amount: string; howUsed: string }> =
-    Array.isArray(executiveSummary?.funding?.usageOfFunds)
-      ? executiveSummary.funding.usageOfFunds.map((r: any) => ({
-          department: String(r?.department ?? ""),
-          allocationPercent: `${Number(r?.allocationPercent ?? 0)}%`,
-          amount: String(r?.amount ?? ""),
-          howUsed: String(r?.howUsed ?? ""),
-        }))
-      : [];
+  const usageRows: Array<{
+    department: string;
+    allocationPercent: string;
+    amount: string;
+    howUsed: string;
+  }> = Array.isArray(executiveSummary?.funding?.usageOfFunds)
+    ? executiveSummary.funding.usageOfFunds.map((r: any) => ({
+        department: String(r?.department ?? ""),
+        allocationPercent: `${Number(r?.allocationPercent ?? 0)}%`,
+        amount: String(r?.amount ?? ""),
+        howUsed: String(r?.howUsed ?? ""),
+      }))
+    : [];
 
   // Sum of allocation for a total row (optional)
-  const totalPct = usageRows.reduce((a, r) => a + (parseFloat(String(r.allocationPercent).replace("%", "")) || 0), 0);
-
-  // ──────────────────────────────────────────────────────────────
-  // Deterministic content for Legal & Founding Team from planData
-  // ──────────────────────────────────────────────────────────────
-  const owners = Array.isArray(planData.ownership) ? planData.ownership : [];
-  const ownershipLines = owners
-    .filter((o) => o && (o.name || o.role || o.ownershipPercent != null))
-    .map(
-      (o) =>
-        `- ${o.name || "Owner"} — ${o.role || "Role"}${
-          o.ownershipPercent != null ? ` — ${o.ownershipPercent}%` : ""
-        }`
-    )
-    .join("\n");
-
-  const legalMd = [
-    `- **Legal Structure:** ${labelizeLegal((planData as any).legalStructure) || "Not specified"}`,
-    `- **Country/State of Incorporation:** ${planData.incorporationCountry || "Not specified"} / ${planData.incorporationState || "Not specified"}`,
-    ownershipLines ? "- **Ownership & Founders:**" : "",
-    ownershipLines,
-  ]
-    .filter(Boolean)
-    .join("\n");
-
-  const foundersArr = Array.isArray(planData.founders) ? planData.founders : [];
-  const foundingMd =
-    foundersArr.length > 0
-      ? foundersArr
-          .filter((f) => f && (f.name || f.title || f.linkedinUrl || f.bio))
-          .map((f) => {
-            const line = `- ${f.name || "Founder"} — ${f.title || "Title"}${
-              f.linkedinUrl ? ` — ${f.linkedinUrl}` : ""
-            }`;
-            return f.bio ? `${line}\n${f.bio}` : line;
-          })
-          .join("\n")
-      : "- Not specified";
+  const totalPct = usageRows.reduce(
+    (a, r) => a + (parseFloat(String(r.allocationPercent).replace("%", "")) || 0),
+    0
+  );
 
   // ──────────────────────────────────────────────────────────────
   // Helpers for Revenue Statement (show raw strings, compute totals without symbols)
@@ -313,8 +276,10 @@ export async function exportBusinessPlanDocx(
 
   const monthlyRevenueStr =
     raw((planData as any)?.monthlyRevenue) || raw(safePlan?.monthlyRevenue);
+
+  // Fallback to safePlan for monthly expenses
   const monthlyExpensesStr =
-    raw((planData as any)?.monthlyExpenses) || "";
+    raw((planData as any)?.monthlyExpenses) || raw(safePlan?.monthlyExpenses);
 
   const mRevN = parseN(monthlyRevenueStr);
   const mExpN = parseN(monthlyExpensesStr);
@@ -332,15 +297,20 @@ export async function exportBusinessPlanDocx(
   const fundingNeededStr =
     raw((planData as any)?.fundingNeeded) || raw(safePlan?.fundingNeeded) || "—";
 
-  const expenseBreakdown =
-    Array.isArray((planData as any)?.fundingUseBreakdown)
-      ? (planData as any).fundingUseBreakdown
-      : [];
+  const expenseBreakdown = Array.isArray((planData as any)?.fundingUseBreakdown)
+    ? (planData as any).fundingUseBreakdown
+    : [];
 
-  const initUtilBreakdown =
-    Array.isArray((planData as any)?.investmentUtilization)
-      ? (planData as any).investmentUtilization
-      : [];
+  const initUtilBreakdown = Array.isArray((planData as any)?.investmentUtilization)
+    ? (planData as any).investmentUtilization
+    : [];
+
+  // Show a nice placeholder when a cell would otherwise be empty
+  const show = (s: string) => {
+    const t = String(s ?? "").trim();
+    return t ? t : "—";
+    // could also return "" if you prefer bare blanks
+  };
 
   const doc = new Document({
     styles: {
@@ -410,10 +380,7 @@ export async function exportBusinessPlanDocx(
           basedOn: "BodyText",
           next: "BodyText",
           quickFormat: true,
-          paragraph: {
-            indent: { left: 720 },
-            spacing: { after: 60 },
-          },
+          paragraph: { indent: { left: 720 }, spacing: { after: 60 } },
         },
       ],
       // @ts-ignore
@@ -444,10 +411,7 @@ export async function exportBusinessPlanDocx(
               format: "bullet",
               text: "◦",
               alignment: AlignmentType.LEFT,
-              style: {
-                run: { size: 18 },
-                paragraph: { indent: { left: 720 } },
-              },
+              style: { run: { size: 18 }, paragraph: { indent: { left: 720 } } },
             },
           ],
         },
@@ -467,9 +431,7 @@ export async function exportBusinessPlanDocx(
 
           // TOC (own page)
           new Paragraph({ text: "Table of Contents", style: "TitleStyle", pageBreakBefore: true }),
-          new TableOfContents("", {
-            headingStyleRange: "1-2",
-          }),
+          new TableOfContents("", { headingStyleRange: "1-2" }),
 
           // 1. Executive Summary
           H1("Executive Summary"),
@@ -491,42 +453,45 @@ export async function exportBusinessPlanDocx(
                 children: [
                   new TableCell({
                     width: { size: 2500, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
                     children: [new Paragraph({ text: "Department", style: "BodyText" })],
                   }),
                   new TableCell({
                     width: { size: 2000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
                     children: [new Paragraph({ text: "Allocation %", style: "BodyText" })],
                   }),
                   new TableCell({
                     width: { size: 2500, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
                     children: [new Paragraph({ text: "Amount", style: "BodyText" })],
                   }),
                   new TableCell({
                     width: { size: 4000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
                     children: [new Paragraph({ text: "How it will be used", style: "BodyText" })],
                   }),
                 ],
               }),
-              ...usageRows.map((r) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.department, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.allocationPercent, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.howUsed, style: "BodyText" })] }),
-                  ],
-                })
+              ...usageRows.map(
+                (r) =>
+                  new TableRow({
+                    children: [
+                      new TableCell({ children: [new Paragraph({ text: r.department, style: "BodyText" })] }),
+                      new TableCell({ children: [new Paragraph({ text: r.allocationPercent, style: "BodyText" })] }),
+                      new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
+                      new TableCell({ children: [new Paragraph({ text: r.howUsed, style: "BodyText" })] }),
+                    ],
+                  })
               ),
               ...(usageRows.length
                 ? [
                     new TableRow({
                       children: [
                         new TableCell({ children: [new Paragraph({ text: "Total", style: "BodyText" })] }),
-                        new TableCell({ children: [new Paragraph({ text: `${Math.round(totalPct)}%`, style: "BodyText" })] }),
+                        new TableCell({
+                          children: [new Paragraph({ text: `${Math.round(totalPct)}%`, style: "BodyText" })],
+                        }),
                         new TableCell({ children: [new Paragraph({ text: "", style: "BodyText" })] }),
                         new TableCell({ children: [new Paragraph({ text: "", style: "BodyText" })] }),
                       ],
@@ -543,144 +508,6 @@ export async function exportBusinessPlanDocx(
           H2("Solution"),
           ...md(executiveSummary.solution, { bodyStyle: "BodyText" }),
 
-          // NEW: Startup Revenue Statement (from quiz inputs; show raw amounts as entered)
-          H2("Startup Revenue Statement"),
-          new Table({
-            style: "BusinessPlanTable",
-            alignment: AlignmentType.CENTER,
-            rows: [
-              // Header
-              new TableRow({
-                children: [
-                  new TableCell({
-                    width: { size: 5000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Metric", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 5000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Value", style: "BodyText" })],
-                  }),
-                ],
-              }),
-              // Rows
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Company Name", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: companyName, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Revenue", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: monthlyRevenueStr, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Revenue (×12)", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: projectedAnnualRevenue, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Expenses", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: monthlyExpensesStr, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Expenses (×12)", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: projectedAnnualExpenses, style: "BodyText" })] }),
-                ],
-              }),
-
-              // Optional: Breakdown of Expenses (planned use)
-              ...(expenseBreakdown.length
-                ? [
-                    new TableRow({
-                      children: [
-                        new TableCell({
-                          shading: { fill: "F5F5F5" },
-                          children: [new Paragraph({ children: [new TextRun({ text: "Breakdown of Expenses (planned use)", bold: true })], style: "BodyText" })],
-                        }),
-                        new TableCell({ shading: { fill: "F5F5F5" }, children: [new Paragraph({ text: "", style: "BodyText" })] }),
-                      ],
-                    }),
-                    ...expenseBreakdown.map((r: any) =>
-                      new TableRow({
-                        children: [
-                          new TableCell({
-                            children: [new Paragraph({ text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`, style: "BodyText" })],
-                          }),
-                          new TableCell({ children: [new Paragraph({ text: raw(r?.amount), style: "BodyText" })] }),
-                        ],
-                      })
-                    ),
-                  ]
-                : []),
-
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Monthly", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: netMonthly, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Annual", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: netAnnual, style: "BodyText" })] }),
-                ],
-              }),
-
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Initial Investment", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: initialInvestmentStr, style: "BodyText" })] }),
-                ],
-              }),
-
-              // Optional: Breakdown of Initial Investment
-              ...(initUtilBreakdown.length
-                ? [
-                    new TableRow({
-                      children: [
-                        new TableCell({
-                          shading: { fill: "F5F5F5" },
-                          children: [new Paragraph({ children: [new TextRun({ text: "Breakdown of Initial Investment", bold: true })], style: "BodyText" })],
-                        }),
-                        new TableCell({ shading: { fill: "F5F5F5" }, children: [new Paragraph({ text: "", style: "BodyText" })] }),
-                      ],
-                    }),
-                    ...initUtilBreakdown.map((r: any) =>
-                      new TableRow({
-                        children: [
-                          new TableCell({
-                            children: [new Paragraph({ text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`, style: "BodyText" })],
-                          }),
-                          new TableCell({ children: [new Paragraph({ text: raw(r?.amount), style: "BodyText" })] }),
-                        ],
-                      })
-                    ),
-                  ]
-                : []),
-
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "External Funding Received", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: fundingReceivedStr, style: "BodyText" })] }),
-                ],
-              }),
-              new TableRow({
-                children: [
-                  new TableCell({ children: [new Paragraph({ text: "Funding Requirement", style: "BodyText" })] }),
-                  new TableCell({ children: [new Paragraph({ text: fundingNeededStr, style: "BodyText" })] }),
-                ],
-              }),
-            ],
-          }),
-
           // 2. Company Overview
           H1("Company Overview"),
           Spacer(),
@@ -691,18 +518,61 @@ export async function exportBusinessPlanDocx(
 
           // Deterministic sections from planData
           H2("Legal Structure & Ownership"),
-          ...md(legalMd, { bodyStyle: "BodyText" }),
-          H2("Founding Team"),
-          ...md(foundingMd, { bodyStyle: "BodyText" }),
+          ...md(
+            (() => {
+              const owners = Array.isArray(planData.ownership) ? planData.ownership : [];
+              const ownershipLines = owners
+                .filter((o) => o && (o.name || o.role || o.ownershipPercent != null))
+                .map(
+                  (o) =>
+                    `- ${o.name || "Owner"} — ${o.role || "Role"}${
+                      o.ownershipPercent != null ? ` — ${o.ownershipPercent}%` : ""
+                    }`
+                )
+                .join("\n");
 
-          // 3. SWOT Analysis (NEW) — placed right after Company Overview
+              const legalMd = [
+                `- **Legal Structure:** ${labelizeLegal((planData as any).legalStructure) || "Not specified"}`,
+                `- **Country/State of Incorporation:** ${planData.incorporationCountry || "Not specified"} / ${
+                  planData.incorporationState || "Not specified"
+                }`,
+                ownershipLines ? "- **Ownership & Founders:**" : "",
+                ownershipLines,
+              ]
+                .filter(Boolean)
+                .join("\n");
+
+              return legalMd;
+            })(),
+            { bodyStyle: "BodyText" }
+          ),
+
+          H2("Founding Team"),
+          ...md(
+            (() => {
+              const foundersArr = Array.isArray(planData.founders) ? planData.founders : [];
+              return foundersArr.length > 0
+                ? foundersArr
+                    .filter((f) => f && (f.name || f.title || f.linkedinUrl || f.bio))
+                    .map((f) => {
+                      const line = `- ${f.name || "Founder"} — ${f.title || "Title"}${
+                        f.linkedinUrl ? ` — ${f.linkedinUrl}` : ""
+                      }`;
+                      return f.bio ? `${line}\n${f.bio}` : line;
+                    })
+                    .join("\n")
+                : "- Not specified";
+            })(),
+            { bodyStyle: "BodyText" }
+          ),
+
+          // 3. SWOT Analysis
           H1("SWOT Analysis"),
           Spacer(),
           H2("Strengths / Success Drivers"),
           ...((safePlan?.swot?.strengths || []).map((r: any) => bullet(r?.Item || String(r)))),
           H2("Weaknesses"),
           ...((safePlan?.swot?.weaknesses || []).map((r: any) => bullet(r?.Item || String(r)))),
-          // NEW: Opportunities & Threats bullets
           H2("Opportunities"),
           ...((safePlan?.swot?.opportunities || []).map((r: any) => bullet(String(r)))),
           H2("Threats"),
@@ -801,192 +671,175 @@ export async function exportBusinessPlanDocx(
           H2("Key Assumptions"),
           new Paragraph({ text: financialPlan.keyAssumptions, style: "BodyText" }),
 
-          H2("Revenue Forecast"),
+          // ▶️ Moved here: Startup Revenue Statement
+          H2("Startup Revenue Statement"),
           new Table({
             style: "BusinessPlanTable",
             alignment: AlignmentType.CENTER,
+            columnWidths: [5000, 5000],
             rows: [
               new TableRow({
                 children: [
                   new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Period", style: "BodyText" })],
+                    width: { size: 5000, type: WidthType.DXA },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Metric", style: "BodyText" })],
                   }),
                   new TableCell({
-                    width: { size: 6000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Amount", style: "BodyText" })],
+                    width: { size: 5000, type: WidthType.DXA },
+                    shading: { type: ShadingType.CLEAR, color: "auto", fill: "EEEEEE" },
+                    children: [new Paragraph({ text: "Value", style: "BodyText" })],
                   }),
                 ],
               }),
-              ...financialPlan.revenueForecast.map((r: any) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.period, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
-                  ],
-                })
-              ),
-            ],
-          }),
 
-          H2("Cost of Goods Sold (COGS)"),
-          new Table({
-            style: "BusinessPlanTable",
-            alignment: AlignmentType.CENTER,
-            rows: [
               new TableRow({
                 children: [
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Period", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 6000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "COGS", style: "BodyText" })],
-                  }),
+                  new TableCell({ children: [new Paragraph({ text: "Company Name", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(companyName), style: "BodyText" })] }),
                 ],
               }),
-              ...financialPlan.cogs.map((r: any) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.period, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
-                  ],
-                })
-              ),
-            ],
-          }),
-
-          H2("Operating Expenses (OpEx)"),
-          new Table({
-            style: "BusinessPlanTable",
-            alignment: AlignmentType.CENTER,
-            rows: [
               new TableRow({
                 children: [
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Period", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 6000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "OpEx", style: "BodyText" })],
-                  }),
+                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Revenue", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(monthlyRevenueStr), style: "BodyText" })] }),
                 ],
               }),
-              ...financialPlan.opEx.map((r: any) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.period, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.amount, style: "BodyText" })] }),
-                  ],
-                })
-              ),
-            ],
-          }),
-
-          H2("Projected Profit & Loss Statement (P&L)"),
-          new Table({
-            style: "BusinessPlanTable",
-            alignment: AlignmentType.CENTER,
-            rows: [
               new TableRow({
                 children: [
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Period", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Gross Profit", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "EBITDA", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Net Income", style: "BodyText" })],
-                  }),
+                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Revenue (×12)", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(projectedAnnualRevenue), style: "BodyText" })] }),
                 ],
               }),
-              ...financialPlan.projectedPnl.map((r: any) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.period, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.grossProfit, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.ebitda, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.netIncome, style: "BodyText" })] }),
-                  ],
-                })
-              ),
-            ],
-          }),
-
-          H2("Cash Flow & Runway Analysis"),
-          new Table({
-            style: "BusinessPlanTable",
-            alignment: AlignmentType.CENTER,
-            rows: [
               new TableRow({
                 children: [
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Period", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Begin Cash", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Inflows", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Outflows", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "End Cash", style: "BodyText" })],
-                  }),
-                  new TableCell({
-                    width: { size: 3000, type: WidthType.DXA },
-                    shading: { fill: "EEEEEE" },
-                    children: [new Paragraph({ text: "Runway (mo)", style: "BodyText" })],
-                  }),
+                  new TableCell({ children: [new Paragraph({ text: "Current Monthly Expenses", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(monthlyExpensesStr), style: "BodyText" })] }),
                 ],
               }),
-              ...financialPlan.cashFlowRunwayAnalysis.map((r: any) =>
-                new TableRow({
-                  children: [
-                    new TableCell({ children: [new Paragraph({ text: r.period, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.beginningCash, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.inflows, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.outflows, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.endingCash, style: "BodyText" })] }),
-                    new TableCell({ children: [new Paragraph({ text: r.runwayMonths, style: "BodyText" })] }),
-                  ],
-                })
-              ),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Projected Annual Expenses (×12)", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(projectedAnnualExpenses), style: "BodyText" })] }),
+                ],
+              }),
+
+              ...(expenseBreakdown.length
+                ? [
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
+                          children: [
+                            new Paragraph({
+                              children: [new TextRun({ text: "Breakdown of Expenses (planned use)", bold: true })],
+                              style: "BodyText",
+                            }),
+                          ],
+                        }),
+                        new TableCell({
+                          shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
+                          children: [new Paragraph({ text: "", style: "BodyText" })],
+                        }),
+                      ],
+                    }),
+                    ...expenseBreakdown.map(
+                      (r: any) =>
+                        new TableRow({
+                          children: [
+                            new TableCell({
+                              children: [
+                                new Paragraph({
+                                  text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`,
+                                  style: "BodyText",
+                                }),
+                              ],
+                            }),
+                            new TableCell({
+                              children: [new Paragraph({ text: show(raw(r?.amount)), style: "BodyText" })],
+                            }),
+                          ],
+                        })
+                    ),
+                  ]
+                : []),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Monthly", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(netMonthly), style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Annual", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(netAnnual), style: "BodyText" })] }),
+                ],
+              }),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Initial Investment", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(initialInvestmentStr), style: "BodyText" })] }),
+                ],
+              }),
+
+              ...(initUtilBreakdown.length
+                ? [
+                    new TableRow({
+                      children: [
+                        new TableCell({
+                          shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
+                          children: [
+                            new Paragraph({
+                              children: [new TextRun({ text: "Breakdown of Initial Investment", bold: true })],
+                              style: "BodyText",
+                            }),
+                          ],
+                        }),
+                        new TableCell({
+                          shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
+                          children: [new Paragraph({ text: "", style: "BodyText" })],
+                        }),
+                      ],
+                    }),
+                    ...initUtilBreakdown.map(
+                      (r: any) =>
+                        new TableRow({
+                          children: [
+                            new TableCell({
+                              children: [
+                                new Paragraph({
+                                  text: `• ${raw(r?.item ?? r?.category ?? r?.use)}`,
+                                  style: "BodyText",
+                                }),
+                              ],
+                            }),
+                            new TableCell({
+                              children: [new Paragraph({ text: show(raw(r?.amount)), style: "BodyText" })],
+                            }),
+                          ],
+                        })
+                    ),
+                  ]
+                : []),
+
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "External Funding Received", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(fundingReceivedStr), style: "BodyText" })] }),
+                ],
+              }),
+              new TableRow({
+                children: [
+                  new TableCell({ children: [new Paragraph({ text: "Funding Requirement", style: "BodyText" })] }),
+                  new TableCell({ children: [new Paragraph({ text: show(fundingNeededStr), style: "BodyText" })] }),
+                ],
+              }),
             ],
           }),
 
+          // Narrative parts
           H2("Key Financial Metrics & Ratios"),
           new Paragraph({ text: financialPlan.keyFinancialMetricsRatios, style: "BodyText" }),
 
