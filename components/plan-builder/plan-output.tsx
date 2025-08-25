@@ -22,6 +22,9 @@ import Link from "next/link"
 import type { BusinessPlanData, GeneratedPlan } from "@/components/plan-builder/PlanBuilderClient"
 import { TypewriterHTML } from "@/components/ui/TypewriterHTML"
 
+// ✅ Recharts (for the pie)
+import { ResponsiveContainer, PieChart, Pie, Cell } from "recharts"
+
 /* -------------------------------------------------------------------------- */
 /*                                       Helpers                              */
 /* -------------------------------------------------------------------------- */
@@ -132,6 +135,83 @@ function FoundingTeamBlock({ data }: { data: BusinessPlanData }) {
           ))
           : <li>Not specified</li>}
       </ul>
+    </div>
+  )
+}
+
+/* -------------------------------------------------------------------------- */
+/*                  Use of Funds Pie (Financial Plan section)                 */
+/* -------------------------------------------------------------------------- */
+
+function computeUseOfFunds(planData: BusinessPlanData, generatedPlan: GeneratedPlan | null) {
+  const aiRows = (generatedPlan as any)?.executiveSummary?.funding?.usageOfFunds
+  if (Array.isArray(aiRows) && aiRows.length) {
+    const hasPct = aiRows.some((r: any) => Number(r?.allocationPercent) > 0)
+    if (hasPct) {
+      return aiRows
+        .map((r: any) => ({
+          name: String(r?.department || r?.category || "Other"),
+          value: Number(r?.allocationPercent || 0),
+        }))
+        .filter(d => d.value > 0)
+    }
+    const amounts = aiRows.map((r: any) => Number(String(r?.amount ?? "").replace(/[^\d.-]/g, "")) || 0)
+    const total = amounts.reduce((a: number, b: number) => a + b, 0)
+    if (total > 0) {
+      return aiRows.map((r: any, i: number) => ({
+        name: String(r?.department || r?.category || "Other"),
+        value: (amounts[i] / total) * 100,
+      }))
+    }
+  }
+
+  const rows = Array.isArray((planData as any).fundingUseBreakdown)
+    ? (planData as any).fundingUseBreakdown
+    : []
+  const amounts = rows.map((r: any) => Number(String(r?.amount ?? "").replace(/[^\d.-]/g, "")) || 0)
+  const total = amounts.reduce((a: number, b: number) => a + b, 0)
+  if (total <= 0) return []
+  return rows.map((r: any, i: number) => ({
+    name: String(r?.item || r?.category || "Other"),
+    value: (amounts[i] / total) * 100,
+  }))
+}
+
+const PIE_COLORS = [
+  "#ef4444", "#f97316", "#f59e0b", "#84cc16", "#10b981", "#14b8a6",
+  "#06b6d4", "#3b82f6", "#6366f1", "#8b5cf6", "#a855f7", "#ec4899", "#f43f5e",
+]
+const colorAt = (i: number) => PIE_COLORS[i % PIE_COLORS.length]
+
+function UseOfFundsPie({
+  planData,
+  generatedPlan,
+}: { planData: BusinessPlanData; generatedPlan: GeneratedPlan | null }) {
+  const data = computeUseOfFunds(planData, generatedPlan)
+  if (!data.length) {
+    return <p className="text-sm text-gray-500">No Use-of-Funds data available.</p>
+  }
+
+  return (
+    <div className="w-full h-80 rounded-xl p-3 bg-white">
+      <ResponsiveContainer width="100%" height="100%">
+        <PieChart>
+          <Pie
+            data={data}
+            dataKey="value"
+            nameKey="name"
+            cx="50%"
+            cy="50%"
+            outerRadius="70%"
+            labelLine
+            label={({ name, percent }) => `${name}: ${(percent * 100).toFixed(0)}%`}
+          >
+            {data.map((_, i) => (
+              <Cell key={i} fill={colorAt(i)} stroke="#ffffff" strokeWidth={1} />
+            ))}
+          </Pie>
+        </PieChart>
+      </ResponsiveContainer>
     </div>
   )
 }
@@ -249,10 +329,7 @@ export function PlanOutput(props: PlanOutputProps) {
     onManualCancel,
   } = props
 
-  // View toggle
   const [mode, setMode] = useState<"preview" | "edit">("preview")
-  const TYPE_SPEED_MS = 6 // very fast but readable
-
   const [hoveredSection, setHoveredSection] = useState<string | null>(null)
   const [openSection, setOpenSection] = useState<string | null>(null)
   const toggleSection = (key: string) => setOpenSection(openSection === key ? null : key)
@@ -285,8 +362,6 @@ export function PlanOutput(props: PlanOutputProps) {
         { key: "foundingTeam", title: "Founding Team" },
       ],
     },
-
-    // 👉 SWOT section
     {
       key: "swot",
       title: "SWOT Analysis",
@@ -300,7 +375,6 @@ export function PlanOutput(props: PlanOutputProps) {
         { key: "threats", title: "Threats" },
       ],
     },
-
     {
       key: "products",
       title: "Products",
@@ -379,7 +453,7 @@ export function PlanOutput(props: PlanOutputProps) {
       subsections: [
         { key: "overview", title: "Overview" },
         { key: "keyAssumptions", title: "Key Assumptions" },
-        { key: "revenueStatement", title: "Startup Revenue Statement" }, // 👈 NEW single table
+        { key: "revenueStatement", title: "Startup Revenue Statement" },
         { key: "keyFinancialMetricsRatios", title: "Key Financial Metrics & Ratios" },
         { key: "useOfFundsRunway", title: "Use of Funds & Runway" },
         { key: "keySensitivityRiskScenarios", title: "Key Sensitivity & Risk Scenarios" },
@@ -413,7 +487,6 @@ export function PlanOutput(props: PlanOutputProps) {
     },
   ]
 
-  // Build full-page HTML for typed preview
   const buildFullPlanHTML = () => {
     const joinParas = (txt: any) => {
       const s = String(txt ?? "").trim()
@@ -455,7 +528,6 @@ export function PlanOutput(props: PlanOutputProps) {
       </div>`
     }
 
-    // Build the Revenue Statement HTML from planData
     const revenueStatementHTML = () => {
       const company = String(planData.businessName ?? "").trim() || "—"
       const mRev = num((planData as any).monthlyRevenue)
@@ -549,24 +621,44 @@ export function PlanOutput(props: PlanOutputProps) {
           parts.push(`<h3 class="font-semibold text-lg mb-2">Solution</h3><p>${esc(gpSec.solution)}</p>`)
         }
       } else if (section.key === "swot") {
-        const blocks = [
-          ["Strengths / Success Drivers", gpSec?.strengths],
-          ["Weaknesses", gpSec?.weaknesses],
-          ["Opportunities", gpSec?.opportunities],
-          ["Threats", gpSec?.threats],
+        const norm = (list: any): string[] =>
+          Array.isArray(list)
+            ? list
+                .map((x) => (typeof x === "string" ? x : (x?.Item ?? x?.item ?? "")))
+                .map((s) => String(s).trim())
+                .filter(Boolean)
+            : []
+
+        const strengths =
+          norm(gpSec?.strengths).length > 0 ? norm(gpSec?.strengths) : norm(planData.successDrivers)
+        const weaknesses =
+          norm(gpSec?.weaknesses).length > 0 ? norm(gpSec?.weaknesses) : norm(planData.weaknesses)
+        const opportunities = norm(gpSec?.opportunities)
+        const threats = norm(gpSec?.threats)
+
+        const blocks: Array<[string, string[]]> = [
+          ["Strengths / Success Drivers", strengths],
+          ["Weaknesses", weaknesses],
+          ["Opportunities", opportunities],
+          ["Threats", threats],
         ]
+
         for (const [title, arr] of blocks) {
-          if (Array.isArray(arr) && arr.length) parts.push(listBlock(String(title), arr))
+          if (arr.length) parts.push(listBlock(String(title), arr))
         }
       } else if (section.key === "financialPlan") {
-        // Render only the subsections we kept, with a custom renderer for revenueStatement
         for (const sub of section.subsections || []) {
           if (sub.key === "revenueStatement") {
             parts.push(revenueStatementHTML())
             continue
           }
           const raw = gpSec?.[sub.key]
-          if (raw == null || raw === "") continue
+          if (raw == null || raw === "") {
+            if (sub.key === "useOfFundsRunway") {
+              parts.push(`<div></div>`)
+            }
+            continue
+          }
 
           if (typeof raw === "string") {
             parts.push(`<h3 class="font-semibold text-lg mb-2">${esc(sub.title)}</h3><p>${esc(raw)}</p>`)
@@ -626,24 +718,26 @@ export function PlanOutput(props: PlanOutputProps) {
     <div className="flex h-screen bg-gray-50">
       {/* Sidebar */}
       <nav className="sticky top-0 h-[calc(100vh-2rem)] overflow-y-auto w-56 px-4 py-12 bg-white no-scrollbar">
-        <ul className="space-y-2 text-sm">
+        <ul className="space-y-1 text-sm font-normal">
           {sections.map((s) => (
             <li key={s.key}>
               <button
                 onClick={() => toggleSection(s.key)}
-                className="w-full text-left font-medium hover:text-blue-600"
+                className="w-full text-left text-[14px] leading-tight py-0.5
+                           font-[460] tracking-[0.01em] text-slate-700
+                           hover:text-slate-900 hover:font-[500] transition-colors"
               >
                 {s.title}
               </button>
 
               {s.subsections && openSection === s.key && (
-                <ul className="mt-1 ml-4 space-y-1 text-xs text-gray-600">
+                <ul className="mt-0.5 ml-4 space-y-0.5 text-xs text-gray-600">
                   {s.subsections.map((sub) => (
                     <li key={sub.key}>
                       <a
                         href={`#${s.key}`}
                         onClick={() => setOpenSection(s.key)}
-                        className="block hover:text-blue-500"
+                        className="block hover:text-blue-500 leading-tight py-0.5"
                       >
                         {sub.title}
                       </a>
@@ -663,14 +757,13 @@ export function PlanOutput(props: PlanOutputProps) {
           <div className="max-w-3xl mx-auto flex items-center justify-between">
             <div />
             <div className="flex items-center space-x-2">
-              {/* Mode toggle */}
               <Button
                 variant={mode === "preview" ? "default" : "outline"}
                 size="sm"
                 className="rounded-2xl px-4 py-2"
                 onClick={() => setMode("preview")}
               >
-                Typed Preview
+                Preview
               </Button>
               <Button
                 variant={mode === "edit" ? "default" : "outline"}
@@ -700,31 +793,29 @@ export function PlanOutput(props: PlanOutputProps) {
         {/* Sections */}
         <div className="px-6 pt-2 pb-0">
           <div className="max-w-3xl mx-auto space-y-6">
-            {/* Full-page typed preview */}
             {mode === "preview" ? (
               <div className="prose max-w-none">
                 <TypewriterHTML
                   html={buildFullPlanHTML()}
-                  durationMs={100000}
-                  targetSegments={32}
-                  startDelayMs={0}
+                  durationMs={16000}
+                  targetSegments={80}
+                  startDelayMs={200}
                   cursor
                 />
               </div>
             ) : null}
 
-            {/* Interactive editor with Ask to AI + inline edits */}
             {mode === "edit" && sections.map((section) => {
               const Icon = section.icon
               return (
                 <section id={section.key} key={section.key} className="scroll-mt-20">
                   <Card
-                    className={`border-0 shadow-lg bg-white transition-all duration-300 ${
-                      hoveredSection === section.key ? "shadow-xl transform scale-[1.02]" : ""
-                    }`}
-                    onMouseEnter={() => setHoveredSection(section.key)}
-                    onMouseLeave={() => setHoveredSection(null)}
-                  >
+                    className={`border border-slate-200/70 shadow-lg rounded-2xl overflow-hidden
+                      bg-zinc-50
+                      transition-all duration-300 ${hoveredSection === section.key ? "shadow-xl transform scale-[1.02]" : ""}`}
+                            onMouseEnter={() => setHoveredSection(section.key)}
+                            onMouseLeave={() => setHoveredSection(null)}
+                          >
                     <CardHeader className="pb-4 px-6">
                       <div className="flex items-center justify-between">
                         <div className="flex items-center space-x-4">
@@ -750,7 +841,7 @@ export function PlanOutput(props: PlanOutputProps) {
                               : "opacity-0"
                           }`}
                         >
-                          <Edit3 className="h-4 w-2 mr-2" />
+                          <Edit3 className="h-4 w-4 mr-2" />
                           Ask to AI
                         </Button>
                       </div>
@@ -758,10 +849,8 @@ export function PlanOutput(props: PlanOutputProps) {
 
                     <Separator className="mx-6" />
                     <CardContent className="pt-6 px-6 space-y-6">
-                      {/* ───────────────────────────── Executive Summary (static) ───────────────────────────── */}
                       {section.key === "executiveSummary" ? (
                         <>
-                          {/* Business Overview */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Business Overview</h4>
@@ -804,7 +893,6 @@ export function PlanOutput(props: PlanOutputProps) {
                             )}
                           </div>
 
-                          {/* Our Mission */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Our Mission</h4>
@@ -838,7 +926,6 @@ export function PlanOutput(props: PlanOutputProps) {
                             )}
                           </div>
 
-                          {/* Funding Requirements (P1 + Table + P2) */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Funding Requirements</h4>
@@ -855,11 +942,10 @@ export function PlanOutput(props: PlanOutputProps) {
                               )}
                             </div>
 
-                            {/* P1 */}
                             <ReactMarkdown>{generatedPlan.executiveSummary.funding.p1}</ReactMarkdown>
 
-                            {/* Usage of Funds table */}
                             <h5 className="font-semibold mt-2">Usage of Funds (must sum to 100%)</h5>
+                            <UseOfFundsPie planData={planData} generatedPlan={generatedPlan} />
                             {(() => {
                               const ufRows = Array.isArray(generatedPlan?.executiveSummary?.funding?.usageOfFunds)
                                 ? generatedPlan.executiveSummary.funding.usageOfFunds
@@ -874,7 +960,7 @@ export function PlanOutput(props: PlanOutputProps) {
                               }
 
                               const totalPct = ufRows.reduce((a, r) => a + (Number(r?.allocationPercent) || 0), 0)
-
+                              
                               return (
                                 <table className="w-full table-auto border-collapse border">
                                   <thead>
@@ -904,8 +990,7 @@ export function PlanOutput(props: PlanOutputProps) {
                                 </table>
                               )
                             })()}
-
-                            {/* P2 */}
+                            
                             <div className="mt-2">
                               <ReactMarkdown>
                                 {generatedPlan.executiveSummary.funding.p2}
@@ -913,7 +998,6 @@ export function PlanOutput(props: PlanOutputProps) {
                             </div>
                           </div>
 
-                          {/* Problem Statement */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Problem Statement</h4>
@@ -947,7 +1031,6 @@ export function PlanOutput(props: PlanOutputProps) {
                             )}
                           </div>
 
-                          {/* Solution */}
                           <div className="group space-y-2">
                             <div className="flex justify-between items-center">
                               <h4 className="font-bold">Solution</h4>
@@ -982,9 +1065,7 @@ export function PlanOutput(props: PlanOutputProps) {
                           </div>
                         </>
                       ) : (
-                        /* ───────────────────────────── Generic renderer + custom financial revenueStatement ───────────────────────────── */
                         section.subsections.map(({ key: subKey, title }) => {
-                          // Deterministic JSX for legal/ownership + founding team
                           if (section.key === "companyOverview" && subKey === "legalStructureOwnership") {
                             return (
                               <div key={subKey} className="group space-y-2">
@@ -1006,20 +1087,49 @@ export function PlanOutput(props: PlanOutputProps) {
                             )
                           }
 
-                          // 👉 NEW: Revenue Statement computed from quiz answers
                           if (section.key === "financialPlan" && subKey === "revenueStatement") {
                             return <RevenueStatementTable key={subKey} planData={planData} />
                           }
 
-                          // SWOT arrays → bullets
+                          if (section.key === "financialPlan" && subKey === "useOfFundsRunway") {
+                            return (
+                              <div key={subKey} className="space-y-3">
+                                <h4 className="font-bold">{title}</h4>
+                                {(() => {
+                                  const raw = (generatedPlan as any)?.financialPlan?.[subKey]
+                                  if (!raw) return null
+                                  const text = typeof raw === "string" ? raw : JSON.stringify(raw, null, 2)
+                                  return <ReactMarkdown>{text}</ReactMarkdown>
+                                })()}
+                              </div>
+                            )
+                          }
+
                           if (section.key === "swot") {
-                            const raw = (generatedPlan as any)[section.key]?.[subKey]
-                            const list =
-                              Array.isArray(raw)
-                                ? raw.map((v: any) =>
-                                    typeof v === "string" ? v : (v?.Item ?? v?.item ?? "")
-                                  ).filter(Boolean)
+                            const sw = (generatedPlan as any)?.swot ?? {}
+                            const norm = (list: any): string[] =>
+                              Array.isArray(list)
+                                ? list
+                                    .map((x) => (typeof x === "string" ? x : (x?.Item ?? x?.item ?? "")))
+                                    .map((s) => String(s).trim())
+                                    .filter(Boolean)
                                 : []
+
+                            const strengths =
+                              norm(sw.strengths).length > 0 ? norm(sw.strengths) : norm(planData.successDrivers)
+                            const weaknesses =
+                              norm(sw.weaknesses).length > 0 ? norm(sw.weaknesses) : norm(planData.weaknesses)
+                            const opportunities = norm(sw.opportunities)
+                            const threats = norm(sw.threats)
+
+                            const map: Record<string, string[]> = {
+                              strengths,
+                              weaknesses,
+                              opportunities,
+                              threats,
+                            }
+
+                            const list = map[subKey] ?? []
 
                             return (
                               <div key={subKey} className="space-y-2">
@@ -1051,7 +1161,6 @@ export function PlanOutput(props: PlanOutputProps) {
                             )
                           }
 
-                          // Any other arrays (arrays of objects) → table
                           const raw = (generatedPlan as any)[section.key]?.[subKey]
                           if (Array.isArray(raw)) {
                             return (

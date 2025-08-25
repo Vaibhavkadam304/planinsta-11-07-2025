@@ -18,6 +18,18 @@ import SuggestedChoices from "@/components/SuggestedChoices"
 import { suggestSwot } from "@/app/actions/suggest-swot"   // ← NEW
 import SuggestedAudience from "@/components/SuggestedAudience"
 
+import QuizSection1 from "@/components/plan-builder/sections/QuizSection1";
+import QuizSectionVision from "@/components/plan-builder/sections/QuizSectionVision";
+import QuizSectionTargetMarket from "@/components/plan-builder/sections/QuizSectionTargetMarket";
+import QuizSectionProducts from "@/components/plan-builder/sections/QuizSectionProducts";
+import QuizSectionMarketing from "@/components/plan-builder/sections/QuizSectionMarketing";
+import QuizSectionOperations from "@/components/plan-builder/sections/QuizSectionOperations";
+import QuizSectionLegalOwnership from "@/components/plan-builder/sections/QuizSectionLegalOwnership";
+import QuizSectionSuccessDrivers from "@/components/plan-builder/sections/QuizSectionSuccessDrivers";
+import QuizSectionFinancial from "@/components/plan-builder/sections/QuizSectionFinancial";
+import QuizSectionTraction from "@/components/plan-builder/sections/QuizSectionTraction";
+import QuizSectionExtras from "@/components/plan-builder/sections/QuizSectionExtras";
+
 interface QuizInterfaceProps {
   data: BusinessPlanData
   onChange: (data: Partial<BusinessPlanData>) => void
@@ -418,6 +430,18 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
   const [currentSectionIndex, setCurrentSectionIndex] = useState(0)
   const currentSection = sections[currentSectionIndex]
   const progress = ((currentSectionIndex + 1) / sections.length) * 100
+
+  const goNext = () =>
+    setCurrentSectionIndex((i) => Math.min(i + 1, sections.length - 1));
+  const goPrev = () =>
+    setCurrentSectionIndex((i) => Math.max(i - 1, 0));
+
+  const handleTargetMarketSubmit = (vals: any) => {
+    onChange(vals);   // merge into your master data
+    goNext();
+  };
+  const handleProductsSubmit = (vals: any) => { onChange(vals); goNext(); };
+  
 
   // For long-text suggestion widget
   const [activeSuggestionField, setActiveSuggestionField] =
@@ -975,6 +999,201 @@ export function QuizInterface({ data, onChange, onGeneratePlan }: QuizInterfaceP
         return null
     }
   }
+
+  if (currentSection.id === "business-basics") {
+    return (
+      <QuizSection1
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          businessName: String(data.businessName || ""),
+          oneLiner: String(data.description || ""),
+          model: String(data.businessModel || ""),
+          stage: String(data.businessStage || ""),
+        }}
+        onSubmit={(vals) => {
+          onChange({
+            businessName: vals.businessName,
+            description: vals.oneLiner,
+            businessModel: (vals.model || "").toLowerCase(),
+            businessStage: (vals.stage || "").toLowerCase(),
+          });
+          setCurrentSectionIndex((i) => Math.min(i + 1, sections.length - 1));
+        }}
+      />
+    );
+  }
+
+  if (currentSection.id === "vision-goals") {
+    return (
+      <QuizSectionVision
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          visionStatement: String(data.visionStatement || ""),
+          shortTermGoal:   String(data.shortTermGoal || ""),
+          longTermGoal:    String(data.longTermGoal || ""),
+          // 👇 add these so suggestions can be contextual
+          description:     String(data.description || ""),
+          businessModel:   String(data.businessModel || ""),
+          businessStage:   String(data.businessStage || ""),
+        }}
+        onSubmit={(vals) => { onChange(vals); handleNext(); }}
+        onPrevious={handlePrevious}
+      />
+    );
+  }
+
+  if (currentSection.id === "target-market") {
+    return (
+      <QuizSectionTargetMarket
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          // fields this page edits
+          targetAudience: data.targetAudience || "",
+          location: data.location || "",
+          marketSize: data.marketSize || "",
+
+          // light context for the auto-generator
+          description: data.description || "",
+          businessModel: data.businessModel || "",
+          businessStage: data.businessStage || "",
+          products: data.products || [],
+        }}
+        onPrevious={goPrev}
+        onSubmit={handleTargetMarketSubmit}
+      />
+    );
+  }
+
+  if (currentSection.id === "product-service") {
+    return (
+      <QuizSectionProducts
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{ products: data.products || [] }}
+        onPrevious={goPrev}
+        onSubmit={handleProductsSubmit}
+      />
+    );
+  }
+
+  if (currentSection.id === "marketing-sales") {
+    return (
+      <QuizSectionMarketing
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          marketingChannels: data.marketingChannels || [],
+          pricingStrategy: data.pricingStrategy || "",
+          hasSalesTeam: !!data.hasSalesTeam,
+        }}
+        onPrevious={goPrev}
+        onSubmit={(vals) => { onChange(vals); goNext(); }}
+      />
+    );
+  }
+
+  if (currentSection.id === "operations-team") {
+    return (
+      <QuizSectionOperations
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          operationLocation: data.operationLocation || "",
+          legalStructure: data.legalStructure || "",
+          teamSize: data.teamSize || "",
+          founderRole: data.founderRole || "",
+        }}
+        onPrevious={handlePrevious}   // or goPrev()
+        onSubmit={(vals) => { onChange(vals); handleNext(); }} // or goNext()
+      />
+    );
+  }
+
+  if (currentSection.id === "company-legal-ownership") {
+    return (
+      <QuizSectionLegalOwnership
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          legalStructure: data.legalStructure || "",
+          incorporationCountry: data.incorporationCountry || "",
+          incorporationState: data.incorporationState || "",
+          ownership: data.ownership || [],
+          founders: data.founders || [],
+        }}
+        onPrevious={handlePrevious}
+        onSubmit={(vals) => { onChange(vals); handleNext(); }}
+      />
+    );
+  }
+
+  if (currentSection.id === "swot-analysis") {
+    return (
+      <QuizSectionSuccessDrivers
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          successDrivers: data.successDrivers || [""],
+          weaknesses: data.weaknesses || [""],
+        }}
+        data={data}                 // used to generate suggestions
+        onPrevious={handlePrevious}
+        onSubmit={(vals) => { onChange(vals); handleNext(); }}
+      />
+    );
+  }
+
+  if (currentSection.id === "financial-info") {
+    return (
+      <QuizSectionFinancial
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          initialInvestment: data.initialInvestment,
+          investmentUtilization: data.investmentUtilization,
+          fundingReceived: data.fundingReceived,
+          fundingNeeded: data.fundingNeeded,
+          fundingUseBreakdown: data.fundingUseBreakdown,
+          monthlyRevenue: data.monthlyRevenue,
+          monthlyExpenses: data.monthlyExpenses,
+        }}
+        onPrevious={handlePrevious}
+        onSubmit={(vals) => { onChange(vals); handleNext(); }}
+      />
+    );
+  }
+
+  if (currentSection.id === "traction-milestones") {
+    return (
+      <QuizSectionTraction
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{
+          achievements: data.achievements,
+          upcomingMilestone: data.upcomingMilestone,
+        }}
+        onPrevious={handlePrevious}
+        onSubmit={(vals) => { onChange(vals); handleNext(); }}
+      />
+    );
+  }
+
+  if (currentSection.id === "extras") {
+    return (
+      <QuizSectionExtras
+        currentSection={currentSectionIndex + 1}
+        totalSections={sections.length}
+        defaultValues={{ notes: data.notes }}
+        onPrevious={handlePrevious}
+        onSubmit={(vals) => { onChange(vals); }} // no handleNext needed here
+        onGeneratePlan={onGeneratePlan}         // ⬅️ pass the redirect handler down
+      />
+    );
+  }
+
 
   return (
     <div className="flex flex-col h-full bg-gray-50">

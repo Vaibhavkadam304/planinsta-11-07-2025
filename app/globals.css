@@ -4,13 +4,25 @@
 
 @custom-variant dark (&:is(.dark *));
 
-@font-face {
+/* @font-face {
   font-family: "Futura Bk Bt";
   src: url("/fonts/futura-book.ttf") format("truetype");
   font-weight: normal;
   font-style: normal;
   font-display: swap;
-}
+} */
+
+
+/* @import url("https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap");
+
+@layer base {
+  * { @apply border-border outline-ring/50; }
+  body {
+    @apply bg-background text-foreground;
+    font-family: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+  }
+} */
+
 
 html, body {
   margin: 0;
@@ -289,4 +301,25 @@ html, body {
 .no-scrollbar {
   -ms-overflow-style: none;    /* IE 10+ */
   scrollbar-width: none;       /* Firefox */
+}
+
+/* Make the BODY background transparent only on pages that add .glass-bg */
+body.glass-bg { --background: oklch(1 0 0 / 0); }          /* transparent */
+.dark body.glass-bg { --background: oklch(0 0 0 / 0); }    /* transparent in dark too */
+
+/* (Optional) make default surfaces a bit glassy when .glass-bg is on */
+body.glass-bg {
+  --card: oklch(1 0 0 / 0.35);
+  --popover: oklch(1 0 0 / 0.9);
+  --secondary: oklch(1 0 0 / 0.5);
+  --muted: oklch(1 0 0 / 0.5);
+  --border: oklch(0.922 0 0 / 0.5);
+}
+
+
+.surface-warm {
+  --card: oklch(0.98 0.02 70);   /* light: warm cream */
+}
+.dark .surface-warm {
+  --card: oklch(0.22 0.02 70);   /* dark: warm charcoal */
 }

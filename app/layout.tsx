@@ -4,7 +4,11 @@ import type { Metadata } from "next"
 import "./globals.css"
 import { ClientProviders } from "@/components/ClientProviders"
 import { Toaster } from "@/components/ui/toaster"
-import { NetworkStatusToaster } from "@/components/network-status-toaster" // ✅ NEW
+import { NetworkStatusToaster } from "@/components/network-status-toaster"
+
+// ⬇️ NEW: pick a clean sans
+import { Inter } from "next/font/google"
+const inter = Inter({ subsets: ["latin"], display: "swap" })
 
 export const metadata: Metadata = {
   title: "PlanInsta Dashboard - AI Business Plan Builder",
@@ -12,19 +16,15 @@ export const metadata: Metadata = {
   generator: "v0.dev",
 }
 
-export default function RootLayout({
-  children,
-}: {
-  children: React.ReactNode
-}) {
+export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
-    <html lang="en">
-      <body>
+    // ⬇️ Apply font on the root element
+    <html lang="en" className={inter.className}>
+      {/* ⬇️ Optional: smoother text rendering */}
+      <body className="antialiased">
         <ClientProviders>
-          {/* ✅ One-time network status toasts (offline/online) */}
           <NetworkStatusToaster />
           {children}
-          {/* ✅ Global toast portal */}
           <Toaster />
         </ClientProviders>
       </body>

@@ -243,6 +243,58 @@ type GenerateBusinessPlanResult = {
 };
 
 /* -------------------------------------------------------------------------- */
+/*                      Minimal SWOT Normalization Helpers                    */
+/* -------------------------------------------------------------------------- */
+
+function pickText(x: any): string {
+  if (typeof x === "string") return x.trim();
+  if (x && typeof x === "object") {
+    return String(x.Item ?? x.item ?? x.value ?? "").trim();
+  }
+  return "";
+}
+
+function normList(list: any): string[] {
+  if (!list) return [];
+  if (Array.isArray(list)) return list.map(pickText).filter(Boolean);
+  if (typeof list === "string") {
+    return list
+      .split(/\n|;|•|-|\u2022/)
+      .map(s => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function normalizeGeneratedPlan(plan: GeneratedPlan, data: BusinessPlanData): GeneratedPlan {
+  const sw = plan.swot ?? ({} as any);
+
+  const strengths = normList(sw.strengths);
+  const weaknesses = normList(sw.weaknesses);
+  let opportunities = normList(sw.opportunities);
+  let threats = normList(sw.threats);
+
+  // Tiny, safe fallbacks so UI never shows "No items available"
+  if (!opportunities.length) {
+    if (data.marketSize) opportunities.push("Growing demand in the target market");
+    if ((data.marketingChannels || []).length) opportunities.push("Multiple customer acquisition channels available");
+  }
+  if (!threats.length) {
+    if (data.businessModel) threats.push("Competitive pressure from existing players");
+    if (data.fundingNeeded) threats.push("Capital constraints could slow down growth");
+  }
+
+  // Deduplicate & trim to keep things tidy
+  opportunities = Array.from(new Set(opportunities)).slice(0, 6);
+  threats = Array.from(new Set(threats)).slice(0, 6);
+
+  return {
+    ...plan,
+    swot: { strengths, weaknesses, opportunities, threats },
+  };
+}
+
+/* -------------------------------------------------------------------------- */
 /*                                Component                                   */
 /* -------------------------------------------------------------------------- */
 
@@ -412,7 +464,11 @@ export default function PlanBuilderClient() {
       if (!result.success) throw new Error(result.error || "Failed to generate plan");
 
       setPlanId(result.planId!);
-      setGeneratedPlan(result.plan!);
+
+      // ⬇️ Normalize SWOT so Opportunities/Threats never show "No items available"
+      const finalPlan = normalizeGeneratedPlan(result.plan!, dataToUse);
+
+      setGeneratedPlan(finalPlan);
       setStage("output");
       setHasUnsavedChanges(false);
       inflightRef.current = false;
@@ -603,7 +659,7 @@ export default function PlanBuilderClient() {
 
         {/* Output Stage */}
         {stage === "output" && generatedPlan && (
-          <div id="plan-container">
+          <div id="plan-container" className="surface-warm">
             <PlanOutput
               planData={planData}
               generatedPlan={generatedPlan}

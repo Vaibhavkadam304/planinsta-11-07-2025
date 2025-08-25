@@ -5,6 +5,7 @@ import { createServerComponentClient } from "@supabase/auth-helpers-nextjs"
 import PlansList from "./PlansList"
 
 export default async function MyPlansPage() {
+  // ✅ Top-level usage already correct
   const cookieStore = await cookies()
   const headerList = await headers()
   const supabase = createServerComponentClient({
@@ -19,21 +20,28 @@ export default async function MyPlansPage() {
 
   const { data: plans = [] } = await supabase
     .from("business_plans")
-    .select("id, plan_name, created_at, plan_data") // ← add plan_data
+    .select("id, plan_name, created_at, plan_data") // ← include plan_data
     .eq("user_id", user.id)
     .is("trashed_at", null)
     .order("created_at", { ascending: false })
 
+  // Server action
   async function moveToTrash(id: string) {
     "use server"
+    // ⬇️ FIX: await dynamic APIs before passing to client
+    const cookieStore = await cookies()
+    const headerList = await headers()
+
     const sb = createServerComponentClient({
-      cookies: () => cookies(),
-      headers: () => headers(),
+      cookies: () => cookieStore,
+      headers: () => headerList,
     })
+
     const {
       data: { user },
     } = await sb.auth.getUser()
     if (!user) return
+
     await sb
       .from("business_plans")
       .update({ trashed_at: new Date().toISOString() })

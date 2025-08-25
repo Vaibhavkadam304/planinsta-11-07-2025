@@ -85,6 +85,8 @@ const makeSafe = (obj: any) => {
   return wrap(obj || {});
 };
 
+
+
 // ──────────────────────────────────────────────────────────────
 // Markdown helpers (bold + hyphen bullets; strip emojis)
 // ──────────────────────────────────────────────────────────────
@@ -110,15 +112,23 @@ function runsFromInlineMarkdown(text: string): TextRun[] {
 }
 
 // Render a block of markdown-ish text into Paragraph[]
-function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
-  const style = opts?.bodyStyle ?? "BodyText";
+// keepTogether: when true, apply keep-with-next chaining AND keepLines to avoid page splits
+function md(text: string, opts?: { bodyStyle?: string; keepTogether?: boolean }): Paragraph[] {
+  const baseStyle = opts?.bodyStyle ?? "BodyText";
+  const block = !!opts?.keepTogether;
   const lines = (stripEmojis(text ?? "") || "").replace(/\r\n/g, "\n").split("\n");
   const out: Paragraph[] = [];
 
-  for (const raw of lines) {
+  for (let i = 0; i < lines.length; i++) {
+    const raw = lines[i];
+    const isLast = i === lines.length - 1;
     const line = raw.trim();
+    const styleForThisLine = block && !isLast
+      ? (baseStyle === "BulletText" ? "BulletBlock" : "BodyBlock")
+      : baseStyle;
+
     if (!line) {
-      out.push(new Paragraph({ text: "", style }));
+      out.push(new Paragraph({ text: "", style: styleForThisLine, keepLines: block }));
       continue;
     }
 
@@ -128,7 +138,8 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
       out.push(
         new Paragraph({
           children: [new TextRun({ text: mBoldLine[1].trim(), bold: true })],
-          style,
+          style: styleForThisLine,
+          keepLines: block,
         })
       );
       continue;
@@ -140,27 +151,45 @@ function md(text: string, opts?: { bodyStyle?: string }): Paragraph[] {
       out.push(
         new Paragraph({
           children: runsFromInlineMarkdown(t),
-          style: "BulletText",
+          style: styleForThisLine === "BodyBlock" ? "BulletBlock" : (styleForThisLine as any),
           bullet: { level: 0, reference: "SmallCircle" },
+          keepLines: block,
         })
       );
       continue;
     }
 
     // Default paragraph with inline bold
-    out.push(new Paragraph({ children: runsFromInlineMarkdown(line), style }));
+    out.push(new Paragraph({ children: runsFromInlineMarkdown(line), style: styleForThisLine, keepLines: block }));
   }
 
   return out;
 }
 
-// 👉 Small helper to create a bullet paragraph directly
+// 👉 Small helpers to create bullet paragraphs
 const bullet = (text: string) =>
   new Paragraph({
     children: runsFromInlineMarkdown(stripEmojis(text || "")),
     style: "BulletText",
     bullet: { level: 0, reference: "SmallCircle" },
   });
+
+// Keep a WHOLE list of bullets together
+const bulletsBlock = (items: string[]) => {
+  const ps: Paragraph[] = [];
+  items.forEach((t, i) => {
+    const isLast = i === items.length - 1;
+    ps.push(
+      new Paragraph({
+        children: runsFromInlineMarkdown(stripEmojis(t || "")),
+        style: isLast ? "BulletText" : "BulletBlock",
+        bullet: { level: 0, reference: "SmallCircle" },
+        keepLines: true,
+      })
+    );
+  });
+  return ps;
+};
 
 // ──────────────────────────────────────────────────────────────
 // Deterministic label helpers (for legal structure text, etc.)
@@ -231,10 +260,15 @@ export async function exportBusinessPlanDocx(
   // Headings helpers (real built-in heading levels for TOC)
   const H1 = (text: string) =>
     new Paragraph({ text, heading: HeadingLevel.HEADING_1, pageBreakBefore: true });
-  const H2 = (text: string) => new Paragraph({ text, heading: HeadingLevel.HEADING_2 });
+  // Keep H2 with next content to avoid orphan headings
+  const H2 = (text: string) =>
+    new Paragraph({ text, heading: HeadingLevel.HEADING_2, keepNext: true });
 
   // Visual spacer between a main section (H1) and its first H2
   const Spacer = () => new Paragraph({ text: "", spacing: { after: 200 } });
+  // Visual spacer for tables (adds gap above and below)
+  const TableGap = (size = 240) =>
+  new Paragraph({ text: "", style: "BodyText", spacing: { before: size, after: size } });
 
   // Compose Mission text with optional upcoming milestone (from quiz)
   const missionWithMilestone =
@@ -309,7 +343,6 @@ export async function exportBusinessPlanDocx(
   const show = (s: string) => {
     const t = String(s ?? "").trim();
     return t ? t : "—";
-    // could also return "" if you prefer bare blanks
   };
 
   const doc = new Document({
@@ -357,17 +390,18 @@ export async function exportBusinessPlanDocx(
           id: "Heading2",
           name: "Heading 2",
           basedOn: "Normal",
-          next: "Normal",
+          next: "BodyText",
           quickFormat: true,
           run: { size: 24, bold: true, font: "Calibri", color: "000000" },
-          paragraph: { spacing: { before: 200, after: 120 } },
+          // keepNext ensures the H2 line stays with the first content paragraph
+          paragraph: { spacing: { before: 200, after: 120 }, keepNext: true },
         },
 
         {
           id: "BodyText",
           name: "Body Text",
           basedOn: "Normal",
-          next: "Normal",
+          next: "BodyText",
           quickFormat: true,
           run: { size: 22, font: "Calibri", color: "000000" },
           paragraph: { spacing: { line: 276, after: 100 }, alignment: AlignmentType.JUSTIFIED },
@@ -381,6 +415,24 @@ export async function exportBusinessPlanDocx(
           next: "BodyText",
           quickFormat: true,
           paragraph: { indent: { left: 720 }, spacing: { after: 60 } },
+        },
+
+        // NEW: block styles that chain keep-with-next within a subsection
+        {
+          id: "BodyBlock",
+          name: "Body Block (keepNext)",
+          basedOn: "BodyText",
+          next: "BodyText",
+          quickFormat: false,
+          paragraph: { keepNext: true, keepLines: true },
+        },
+        {
+          id: "BulletBlock",
+          name: "Bullet Block (keepNext)",
+          basedOn: "BulletText",
+          next: "BodyText",
+          quickFormat: false,
+          paragraph: { keepNext: true, keepLines: true },
         },
       ],
       // @ts-ignore
@@ -437,19 +489,21 @@ export async function exportBusinessPlanDocx(
           H1("Executive Summary"),
           Spacer(),
           H2("Business Overview"),
-          ...md(executiveSummary.businessOverview, { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.businessOverview, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Our Mission"),
-          ...md(executiveSummary.ourMission, { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.ourMission, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Funding Requirements & Usage of Funds"),
-          ...md(executiveSummary.funding?.p1 || "", { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.funding?.p1 || "", { bodyStyle: "BodyText", keepTogether: true }),
+          TableGap(),
           // Table: Usage of Funds
           new Table({
             style: "BusinessPlanTable",
             alignment: AlignmentType.CENTER,
             rows: [
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({
                     width: { size: 2500, type: WidthType.DXA },
@@ -476,6 +530,7 @@ export async function exportBusinessPlanDocx(
               ...usageRows.map(
                 (r) =>
                   new TableRow({
+                    cantSplit: true,
                     children: [
                       new TableCell({ children: [new Paragraph({ text: r.department, style: "BodyText" })] }),
                       new TableCell({ children: [new Paragraph({ text: r.allocationPercent, style: "BodyText" })] }),
@@ -487,6 +542,7 @@ export async function exportBusinessPlanDocx(
               ...(usageRows.length
                 ? [
                     new TableRow({
+                      cantSplit: true,
                       children: [
                         new TableCell({ children: [new Paragraph({ text: "Total", style: "BodyText" })] }),
                         new TableCell({
@@ -500,21 +556,23 @@ export async function exportBusinessPlanDocx(
                 : []),
             ],
           }),
-          ...md(executiveSummary.funding?.p2 || "", { bodyStyle: "BodyText" }),
+          
+          TableGap(),
+          ...md(executiveSummary.funding?.p2 || "", { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Problem Statement"),
-          ...md(executiveSummary.problemStatement, { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.problemStatement, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Solution"),
-          ...md(executiveSummary.solution, { bodyStyle: "BodyText" }),
+          ...md(executiveSummary.solution, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 2. Company Overview
           H1("Company Overview"),
           Spacer(),
           H2("Vision Statement"),
-          new Paragraph({ text: companyOverview.visionStatement, style: "BodyText" }),
+          ...md(companyOverview.visionStatement, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Mission Statement"),
-          ...md(missionWithMilestone, { bodyStyle: "BodyText" }),
+          ...md(missionWithMilestone, { bodyStyle: "BodyText", keepTogether: true }),
 
           // Deterministic sections from planData
           H2("Legal Structure & Ownership"),
@@ -525,9 +583,8 @@ export async function exportBusinessPlanDocx(
                 .filter((o) => o && (o.name || o.role || o.ownershipPercent != null))
                 .map(
                   (o) =>
-                    `- ${o.name || "Owner"} — ${o.role || "Role"}${
-                      o.ownershipPercent != null ? ` — ${o.ownershipPercent}%` : ""
-                    }`
+                    `- ${o.name || "Owner"} — ${o.role || "Role"}` +
+                    `${o.ownershipPercent != null ? ` — ${o.ownershipPercent}%` : ""}`
                 )
                 .join("\n");
 
@@ -544,7 +601,7 @@ export async function exportBusinessPlanDocx(
 
               return legalMd;
             })(),
-            { bodyStyle: "BodyText" }
+            { bodyStyle: "BodyText", keepTogether: true }
           ),
 
           H2("Founding Team"),
@@ -555,34 +612,33 @@ export async function exportBusinessPlanDocx(
                 ? foundersArr
                     .filter((f) => f && (f.name || f.title || f.linkedinUrl || f.bio))
                     .map((f) => {
-                      const line = `- ${f.name || "Founder"} — ${f.title || "Title"}${
-                        f.linkedinUrl ? ` — ${f.linkedinUrl}` : ""
-                      }`;
+                      const line = `- ${f.name || "Founder"} — ${f.title || "Title"}` +
+                        `${f.linkedinUrl ? ` — ${f.linkedinUrl}` : ""}`;
                       return f.bio ? `${line}\n${f.bio}` : line;
                     })
                     .join("\n")
                 : "- Not specified";
             })(),
-            { bodyStyle: "BodyText" }
+            { bodyStyle: "BodyText", keepTogether: true }
           ),
 
           // 3. SWOT Analysis
           H1("SWOT Analysis"),
           Spacer(),
           H2("Strengths / Success Drivers"),
-          ...((safePlan?.swot?.strengths || []).map((r: any) => bullet(r?.Item || String(r)))),
+          ...bulletsBlock((safePlan?.swot?.strengths || []).map((r: any) => r?.Item || String(r))),
           H2("Weaknesses"),
-          ...((safePlan?.swot?.weaknesses || []).map((r: any) => bullet(r?.Item || String(r)))),
+          ...bulletsBlock((safePlan?.swot?.weaknesses || []).map((r: any) => r?.Item || String(r))),
           H2("Opportunities"),
-          ...((safePlan?.swot?.opportunities || []).map((r: any) => bullet(String(r)))),
+          ...bulletsBlock((safePlan?.swot?.opportunities || []).map((r: any) => String(r))),
           H2("Threats"),
-          ...((safePlan?.swot?.threats || []).map((r: any) => bullet(String(r)))),
+          ...bulletsBlock((safePlan?.swot?.threats || []).map((r: any) => String(r))),
 
           // 4. Products
           H1("Products"),
           Spacer(),
           H2("Overview"),
-          new Paragraph({ text: products.overview, style: "BodyText" }),
+          ...md(products.overview, { bodyStyle: "BodyText", keepTogether: true }),
 
           ...Array.from({ length: productCount }, (_, idx) => {
             const i = idx + 1;
@@ -590,88 +646,90 @@ export async function exportBusinessPlanDocx(
             const content = (products as any)[`product${i}`] as string | undefined;
             return [
               H2(`Product ${i}${name ? `: ${name}` : ""}`),
-              ...(content ? md(content, { bodyStyle: "BodyText" }) : [new Paragraph({ text: "", style: "BodyText" })]),
+              ...(content
+                ? md(content, { bodyStyle: "BodyText", keepTogether: true })
+                : [new Paragraph({ text: "", style: "BodyText" })]),
             ];
           }).flat(),
 
           H2("Unique Selling Propositions (USPs)"),
-          ...md(products.uniqueSellingPropositions, { bodyStyle: "BodyText" }),
+          ...md(products.uniqueSellingPropositions, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Development Roadmap"),
-          ...md(products.developmentRoadmap, { bodyStyle: "BodyText" }),
+          ...md(products.developmentRoadmap, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Intellectual Property & Regulatory Status"),
-          new Paragraph({ text: products.intellectualPropertyRegulatoryStatus, style: "BodyText" }),
+          ...md(products.intellectualPropertyRegulatoryStatus, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 5. Market Analysis
           H1("Market Analysis"),
           Spacer(),
           H2("Industry Overview & Size"),
-          new Paragraph({ text: marketAnalysis.industryOverviewSize, style: "BodyText" }),
+          ...md(marketAnalysis.industryOverviewSize, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Growth Trends & Drivers"),
-          new Paragraph({ text: marketAnalysis.growthTrendsDrivers, style: "BodyText" }),
+          ...md(marketAnalysis.growthTrendsDrivers, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Underlying Business Drivers"),
-          new Paragraph({ text: marketAnalysis.underlyingBusinessDrivers, style: "BodyText" }),
+          ...md(marketAnalysis.underlyingBusinessDrivers, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Target Market Segmentation"),
-          new Paragraph({ text: marketAnalysis.targetMarketSegmentation, style: "BodyText" }),
+          ...md(marketAnalysis.targetMarketSegmentation, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Customer Personas & Their Needs"),
-          new Paragraph({ text: marketAnalysis.customerPersonasNeeds, style: "BodyText" }),
+          ...md(marketAnalysis.customerPersonasNeeds, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Competitive Landscape & Positioning"),
-          new Paragraph({ text: marketAnalysis.competitiveLandscapePositioning, style: "BodyText" }),
+          ...md(marketAnalysis.competitiveLandscapePositioning, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Products’ Differentiation"),
-          new Paragraph({ text: marketAnalysis.productsDifferentiation, style: "BodyText" }),
+          ...md(marketAnalysis.productsDifferentiation, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Barriers to Entry"),
-          new Paragraph({ text: marketAnalysis.barriersToEntry, style: "BodyText" }),
+          ...md(marketAnalysis.barriersToEntry, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 6. Marketing & Sales Strategies
           H1("Marketing & Sales Strategies"),
           Spacer(),
           H2("Distribution Channels"),
-          new Paragraph({ text: marketingSalesStrategies.distributionChannels, style: "BodyText" }),
+          ...md(marketingSalesStrategies.distributionChannels, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Technology Cost Structure"),
-          new Paragraph({ text: marketingSalesStrategies.technologyCostStructure, style: "BodyText" }),
+          ...md(marketingSalesStrategies.technologyCostStructure, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Customer Pricing Structure"),
-          new Paragraph({ text: marketingSalesStrategies.customerPricingStructure, style: "BodyText" }),
+          ...md(marketingSalesStrategies.customerPricingStructure, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Retention Strategies"),
-          new Paragraph({ text: marketingSalesStrategies.retentionStrategies, style: "BodyText" }),
+          ...md(marketingSalesStrategies.retentionStrategies, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Integrated Funnel & Financial Impact"),
-          new Paragraph({ text: marketingSalesStrategies.integratedFunnelFinancialImpact, style: "BodyText" }),
+          ...md(marketingSalesStrategies.integratedFunnelFinancialImpact, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 7. Operations Plan
           H1("Operations Plan"),
           Spacer(),
           H2("Overview"),
-          new Paragraph({ text: operationsPlan.overview, style: "BodyText" }),
+          ...md(operationsPlan.overview, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Organizational Structure & Team Responsibilities"),
-          new Paragraph({ text: operationsPlan.organizationalStructureTeamResponsibilities, style: "BodyText" }),
+          ...md(operationsPlan.organizationalStructureTeamResponsibilities, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Infrastructure"),
-          new Paragraph({ text: operationsPlan.infrastructure, style: "BodyText" }),
+          ...md(operationsPlan.infrastructure, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Customer Onboarding to Renewal Workflow"),
-          new Paragraph({ text: operationsPlan.customerOnboardingToRenewalWorkflow, style: "BodyText" }),
+          ...md(operationsPlan.customerOnboardingToRenewalWorkflow, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Cross-Functional Communication & Decision-Making"),
-          new Paragraph({ text: operationsPlan.crossFunctionalCommunicationDecisionMaking, style: "BodyText" }),
+          ...md(operationsPlan.crossFunctionalCommunicationDecisionMaking, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Key Performance Metrics & Goals"),
-          new Paragraph({ text: operationsPlan.keyPerformanceMetricsGoals, style: "BodyText" }),
+          ...md(operationsPlan.keyPerformanceMetricsGoals, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 8. Management & Organization
           H1("Management & Organization"),
           Spacer(),
           H2("Overview"),
-          new Paragraph({ text: managementOrganization.overview, style: "BodyText" }),
+          ...md(managementOrganization.overview, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Organizational Chart"),
-          new Paragraph({ text: managementOrganization.organizationalChart, style: "BodyText" }),
+          ...md(managementOrganization.organizationalChart, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Hiring Plan & Key Roles"),
-          new Paragraph({ text: managementOrganization.hiringPlanKeyRoles, style: "BodyText" }),
+          ...md(managementOrganization.hiringPlanKeyRoles, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 9. Financial Plan
           H1("Financial Plan"),
           Spacer(),
           H2("Overview"),
-          new Paragraph({ text: financialPlan.overview, style: "BodyText" }),
+          ...md(financialPlan.overview, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Key Assumptions"),
-          new Paragraph({ text: financialPlan.keyAssumptions, style: "BodyText" }),
+          ...md(financialPlan.keyAssumptions, { bodyStyle: "BodyText", keepTogether: true }),
 
-          // ▶️ Moved here: Startup Revenue Statement
+          // ▶️ Startup Revenue Statement (table rows set cantSplit)
           H2("Startup Revenue Statement"),
           new Table({
             style: "BusinessPlanTable",
@@ -679,6 +737,7 @@ export async function exportBusinessPlanDocx(
             columnWidths: [5000, 5000],
             rows: [
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({
                     width: { size: 5000, type: WidthType.DXA },
@@ -694,30 +753,35 @@ export async function exportBusinessPlanDocx(
               }),
 
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Company Name", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(companyName), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Current Monthly Revenue", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(monthlyRevenueStr), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Projected Annual Revenue (×12)", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(projectedAnnualRevenue), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Current Monthly Expenses", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(monthlyExpensesStr), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Projected Annual Expenses (×12)", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(projectedAnnualExpenses), style: "BodyText" })] }),
@@ -727,6 +791,7 @@ export async function exportBusinessPlanDocx(
               ...(expenseBreakdown.length
                 ? [
                     new TableRow({
+                      cantSplit: true,
                       children: [
                         new TableCell({
                           shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
@@ -746,6 +811,7 @@ export async function exportBusinessPlanDocx(
                     ...expenseBreakdown.map(
                       (r: any) =>
                         new TableRow({
+                          cantSplit: true,
                           children: [
                             new TableCell({
                               children: [
@@ -765,12 +831,14 @@ export async function exportBusinessPlanDocx(
                 : []),
 
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Monthly", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(netMonthly), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Net Profit / (Loss) – Annual", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(netAnnual), style: "BodyText" })] }),
@@ -778,6 +846,7 @@ export async function exportBusinessPlanDocx(
               }),
 
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Initial Investment", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(initialInvestmentStr), style: "BodyText" })] }),
@@ -787,6 +856,7 @@ export async function exportBusinessPlanDocx(
               ...(initUtilBreakdown.length
                 ? [
                     new TableRow({
+                      cantSplit: true,
                       children: [
                         new TableCell({
                           shading: { type: ShadingType.CLEAR, color: "auto", fill: "F5F5F5" },
@@ -806,6 +876,7 @@ export async function exportBusinessPlanDocx(
                     ...initUtilBreakdown.map(
                       (r: any) =>
                         new TableRow({
+                          cantSplit: true,
                           children: [
                             new TableCell({
                               children: [
@@ -825,12 +896,14 @@ export async function exportBusinessPlanDocx(
                 : []),
 
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "External Funding Received", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(fundingReceivedStr), style: "BodyText" })] }),
                 ],
               }),
               new TableRow({
+                cantSplit: true,
                 children: [
                   new TableCell({ children: [new Paragraph({ text: "Funding Requirement", style: "BodyText" })] }),
                   new TableCell({ children: [new Paragraph({ text: show(fundingNeededStr), style: "BodyText" })] }),
@@ -841,41 +914,41 @@ export async function exportBusinessPlanDocx(
 
           // Narrative parts
           H2("Key Financial Metrics & Ratios"),
-          new Paragraph({ text: financialPlan.keyFinancialMetricsRatios, style: "BodyText" }),
+          ...md(financialPlan.keyFinancialMetricsRatios, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Use of Funds & Runway"),
-          ...md(financialPlan.useOfFundsRunway, { bodyStyle: "BodyText" }),
+          ...md(financialPlan.useOfFundsRunway, { bodyStyle: "BodyText", keepTogether: true }),
 
           H2("Key Sensitivity & Risk Scenarios"),
-          new Paragraph({ text: financialPlan.keySensitivityRiskScenarios, style: "BodyText" }),
+          ...md(financialPlan.keySensitivityRiskScenarios, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Summary & Outlook"),
-          new Paragraph({ text: financialPlan.summaryOutlook, style: "BodyText" }),
+          ...md(financialPlan.summaryOutlook, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 10. Risk Analysis & Mitigation
           H1("Risk Analysis & Mitigation"),
           Spacer(),
           H2("Overview"),
-          new Paragraph({ text: riskAnalysisMitigation.overview, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.overview, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Market Risks"),
-          new Paragraph({ text: riskAnalysisMitigation.marketRisks, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.marketRisks, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Operational Risks"),
-          new Paragraph({ text: riskAnalysisMitigation.operationalRisks, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.operationalRisks, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Regulatory & Legal Risks"),
-          new Paragraph({ text: riskAnalysisMitigation.regulatoryLegalRisks, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.regulatoryLegalRisks, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Financial Risks"),
-          new Paragraph({ text: riskAnalysisMitigation.financialRisks, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.financialRisks, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Contingency Plans"),
-          new Paragraph({ text: riskAnalysisMitigation.contingencyPlans, style: "BodyText" }),
+          ...md(riskAnalysisMitigation.contingencyPlans, { bodyStyle: "BodyText", keepTogether: true }),
 
           // 11. Appendices
           H1("Appendices"),
           Spacer(),
           H2("Glossary"),
-          new Paragraph({ text: appendices.glossary, style: "BodyText" }),
+          ...md(appendices.glossary, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Management Teams’ Resources"),
-          new Paragraph({ text: appendices.managementTeamsResources, style: "BodyText" }),
+          ...md(appendices.managementTeamsResources, { bodyStyle: "BodyText", keepTogether: true }),
           H2("Projected Finances Tables"),
-          new Paragraph({ text: appendices.projectedFinancesTables, style: "BodyText" }),
+          ...md(appendices.projectedFinancesTables, { bodyStyle: "BodyText", keepTogether: true }),
         ],
       },
     ],

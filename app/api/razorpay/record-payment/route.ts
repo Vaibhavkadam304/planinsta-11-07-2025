@@ -1,107 +1,26 @@
-// // app/api/razorpay/record-payment/route.ts
-// export const runtime = "nodejs";
-
-// import { NextRequest, NextResponse } from "next/server";
-// import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-// import { cookies, headers } from "next/headers";
-
-// function supa() {
-//   return createRouteHandlerClient({
-//     cookies: () => cookies(),
-//     headers: () => headers(),
-//   });
-// }
-
-// // ---------- GET: check if user has any payments ----------
-// export async function GET() {
-//   const supabase = supa();
-
-//   const {
-//     data: { user },
-//     error: userError,
-//   } = await supabase.auth.getUser();
-//   if (userError || !user?.id) {
-//     return NextResponse.json({ paid: false });
-//   }
-
-//   const { count, error: countError } = await supabase
-//     .from("payments")
-//     .select("id", { head: true, count: "exact" })
-//     .eq("user_id", user.id);
-
-//   if (countError) {
-//     console.error("Counting payments failed:", countError);
-//     return NextResponse.json({ paid: false });
-//   }
-
-//   return NextResponse.json({ paid: (count ?? 0) > 0 });
-// }
-
-// // ---------- POST: record a payment ----------
-// export async function POST(req: NextRequest) {
-//   const supabase = supa();
-
-//   const {
-//     data: { user },
-//     error: userError,
-//   } = await supabase.auth.getUser();
-//   if (userError || !user?.id) {
-//     return NextResponse.json({ error: "Not authenticated" }, { status: 401 });
-//   }
-
-//   const body = await req.json();
-//   const {
-//     razorpay_order_id,
-//     razorpay_payment_id,
-//     amount,
-//     currency,
-//     status,
-//     paid_at,
-//     plan_id, // optional
-//   } = body;
-
-//   const { error: insertError } = await supabase.from("payments").insert({
-//     user_id: user.id,                     // ✅ important
-//     razorpay_order: razorpay_order_id,
-//     razorpay_payment: razorpay_payment_id,
-//     amount,
-//     currency,
-//     status,
-//     paid_at: paid_at ?? new Date().toISOString(),
-//     plan_id: plan_id ?? null,
-//   });
-
-//   if (insertError) {
-//     console.error("Error recording payment:", insertError);
-//     return NextResponse.json({ error: insertError.message }, { status: 500 });
-//   }
-
-//   return NextResponse.json({ success: true });
-// }
-//----------------------------------------------------------------------------------//
-
-// app/api/razorpay/record-payment/route.ts
-
 export const runtime = "nodejs";
 
 import { NextRequest, NextResponse } from "next/server";
 import { createRouteHandlerClient } from "@supabase/auth-helpers-nextjs";
-import { cookies, headers } from "next/headers";
+// ⬇️ alias to avoid name clash and make it clear we're awaiting them
+import { cookies as getCookies, headers as getHeaders } from "next/headers";
 import nodemailer from "nodemailer";
 
-function supa() {
+// ⬇️ make this async and await the dynamic APIs
+async function supa() {
+  const cookieStore = await getCookies();
+  const headerList = await getHeaders();
   return createRouteHandlerClient({
-    cookies: () => cookies(),
-    headers: () => headers(),
+    cookies: () => cookieStore,
+    headers: () => headerList,
   });
 }
 
-// statuses that count as “successful”
 const successStatuses = new Set(["captured", "paid", "success"]);
 
-// ---------- GET: does the user have any successful payments? ----------
+// ---------- GET ----------
 export async function GET() {
-  const supabase = supa();
+  const supabase = await supa(); // ⬅️ await
 
   const {
     data: { user },
@@ -126,11 +45,10 @@ export async function GET() {
   return NextResponse.json({ paid: (count ?? 0) > 0 });
 }
 
-// ---------- POST: record a payment + email only YOU on every successful payment ----------
+// ---------- POST ----------
 export async function POST(req: NextRequest) {
-  const supabase = supa();
+  const supabase = await supa(); // ⬅️ await
 
-  // authenticate user
   const {
     data: { user },
     error: userError,
@@ -147,12 +65,12 @@ export async function POST(req: NextRequest) {
     currency,
     status,
     paid_at,
-    plan_id, // optional, not used in email
+    plan_id,
   } = body;
 
   const statusNorm = String(status ?? "").trim().toLowerCase();
 
-  // Idempotency guard: don't double-record or double-email the same payment
+  // idempotency guard
   if (razorpay_payment_id) {
     const { data: existing, error: existingErr } = await supabase
       .from("payments")
@@ -170,7 +88,6 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Insert the payment
   const { error: insertError } = await supabase.from("payments").insert({
     user_id: user.id,
     razorpay_order: razorpay_order_id ?? null,
@@ -187,7 +104,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: insertError.message }, { status: 500 });
   }
 
-  // ✅ Email only YOU (internal notification) for successful payments
+  // email (unchanged)
   const shouldEmail = successStatuses.has(statusNorm);
   let emailed = false;
 
@@ -199,7 +116,7 @@ export async function POST(req: NextRequest) {
         (user.user_metadata?.name as string) ||
         (user.user_metadata?.username as string) ||
         (user.user_metadata?.user_name as string) ||
-        ""; // may be empty
+        "";
       const paidAt = paid_at ?? new Date().toISOString();
       const curr = String(currency ?? "").toUpperCase();
       const shortPid = (razorpay_payment_id ?? "").toString().slice(-6);
@@ -208,14 +125,13 @@ export async function POST(req: NextRequest) {
       const transporter = nodemailer.createTransport({
         host: process.env.SMTP_HOST!,
         port: smtpPort,
-        secure: smtpPort === 465, // 465=true, 587=false
+        secure: smtpPort === 465,
         auth: {
           user: process.env.SMTP_USER!,
           pass: process.env.SMTP_PASS!,
         },
       });
 
-      // Send ONLY to internal recipient
       const toAddress =
         process.env.NOTIFY_EMAIL || process.env.EMAIL_FROM || "";
 
@@ -261,7 +177,6 @@ export async function POST(req: NextRequest) {
       }
     } catch (e) {
       console.error("Email send (internal payment notification) failed:", e);
-      // Don't fail the request if email fails
     }
   }
 

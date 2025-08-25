@@ -38,7 +38,7 @@ export default function SuggestedAudience({ data, onPick, className, active }: P
 
   return (
     <div className={className}>
-      <div className="text-xs text-gray-500 mb-1">Suggestions</div>
+      <div className="text-sm text-gray-500 mb-1">Suggestions</div>
       {loading && <div className="text-sm text-gray-500">Thinking…</div>}
       {error && <div className="text-sm text-red-500">{error}</div>}
       {items && items.length > 0 && (
@@ -47,7 +47,7 @@ export default function SuggestedAudience({ data, onPick, className, active }: P
             <button
               key={i}
               onClick={() => onPick(s)}
-              className="text-sm px-3 py-1 rounded-full border hover:bg-gray-50"
+              className="text-lg leading-7 px-5 py-3 rounded-full border hover:bg-gray-50 text-left"
               title="Click to use this"
             >
               {s}

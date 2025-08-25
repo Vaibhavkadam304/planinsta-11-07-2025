@@ -116,7 +116,7 @@ export default function DashboardLayout({
                       <item.icon className="h-5 w-5" />
                     </span>
 
-                    <span className="font-medium">{item.label}</span>
+                    <span className="font-small">{item.label}</span>
                   </Link>
                 )
               })}

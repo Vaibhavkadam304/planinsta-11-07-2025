@@ -50,7 +50,7 @@ export default function SuggestedChoices({
               key={i}
               type="button"
               onClick={() => onPick(s)}
-              className="text-left text-sm rounded-2xl border px-3 py-1 hover:bg-gray-50"
+              className="text-left text-lg leading-7 rounded-2xl border px-5 py-3 hover:bg-gray-50"
               title="Click to use this"
             >
               {s}
