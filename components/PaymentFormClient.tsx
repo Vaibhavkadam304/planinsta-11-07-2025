@@ -8,7 +8,7 @@ import Script from "next/script"
 export default function PaymentFormClient() {
   const router = useRouter()
   const searchParams = useSearchParams()
-  const amount = Number(searchParams.get("amount") || 199900) // paise (₹1,999)
+  const amount = Number(searchParams.get("amount") || 1000) // paise (₹1,999)
   const [orderId, setOrderId] = useState<string | null>(null)
 
   async function onRazorpaySuccess(response: any) {

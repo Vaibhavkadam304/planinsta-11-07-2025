@@ -3,26 +3,10 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Button } from "@/components/ui/button";
 import { Label } from "@/components/ui/label";
 import { Progress } from "@/components/ui/progress";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { Sparkles, ChevronLeft, CheckCircle2 } from "lucide-react";
-
-const LEGAL_OPTIONS = [
-  "Sole Proprietorship",
-  "Partnership",
-  "LLP",
-  "Private Limited",
-  "Other",
-];
 
 export default function QuizSectionOperations({
   currentSection = 6,
@@ -34,13 +18,7 @@ export default function QuizSectionOperations({
   const [operationLocation, setOperationLocation] = useState(
     defaultValues.operationLocation || ""
   );
-  const [legalStructure, setLegalStructure] = useState(
-    defaultValues.legalStructure || ""
-  );
   const [teamSize, setTeamSize] = useState(defaultValues.teamSize || "");
-  const [founderRole, setFounderRole] = useState(
-    defaultValues.founderRole || ""
-  );
 
   useEffect(() => {
     document.body.classList.remove("glass-bg");
@@ -62,9 +40,7 @@ export default function QuizSectionOperations({
 
     onSubmit?.({
       operationLocation,
-      legalStructure,
       teamSize,
-      founderRole,
     });
   };
 
@@ -139,30 +115,6 @@ export default function QuizSectionOperations({
             </Field>
 
             <Field
-              label="What's your legal business structure?"
-              hint="The legal entity type for your business"
-            >
-              <Lift>
-                <Select value={legalStructure} onValueChange={setLegalStructure}>
-                  <SelectTrigger className="h-12 text-lg leading-7 bg-transparent border-0 outline-none focus-visible:ring-0 focus-visible:outline-none">
-                    <SelectValue placeholder="Select an option" />
-                  </SelectTrigger>
-                  <SelectContent className="max-h-64 bg-white border shadow-md rounded-xl">
-                    {LEGAL_OPTIONS.map((opt) => (
-                      <SelectItem
-                        key={opt}
-                        value={opt}
-                        className="bg-white text-slate-800 focus:bg-slate-100 hover:bg-slate-50 rounded-lg"
-                      >
-                        {opt}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </Lift>
-            </Field>
-
-            <Field
               label="What's your current team size?"
               hint="How many people are working on this business?"
             >
@@ -171,20 +123,6 @@ export default function QuizSectionOperations({
                   value={teamSize}
                   onChange={(e) => setTeamSize(e.target.value)}
                   placeholder="e.g., 5 people, Just me, 10–20 employees"
-                  className="h-12 text-lg leading-7 bg-transparent border-0 outline-none focus-visible:ring-0 focus-visible:outline-none"
-                />
-              </Lift>
-            </Field>
-
-            <Field
-              label="What's your role in the business?"
-              hint="Your primary responsibility or title"
-            >
-              <Lift>
-                <Input
-                  value={founderRole}
-                  onChange={(e) => setFounderRole(e.target.value)}
-                  placeholder="e.g., CEO, CTO, Founder"
                   className="h-12 text-lg leading-7 bg-transparent border-0 outline-none focus-visible:ring-0 focus-visible:outline-none"
                 />
               </Lift>
@@ -205,12 +143,12 @@ export default function QuizSectionOperations({
                 id="continueBtn"
                 type="submit"
                 className="
-                        rounded-xl px-6 py-2.5
-                        bg-white text-slate-900 border border-slate-300
-                        hover:bg-orange-600 hover:text-white hover:bg-indigo-700
-                        focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-orange-500/50 focus-visible:ring-offset-2
-                        active:scale-[0.98] transition-colors duration-200
-                    "
+                  rounded-xl px-6 py-2.5
+                  bg-white text-slate-900 border border-slate-300
+                  hover:bg-indigo-700 hover:text-white
+                  focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-indigo-500/50 focus-visible:ring-offset-2
+                  active:scale-[0.98] transition-colors duration-200
+                "
               >
                 Continue
               </Button>
@@ -224,8 +162,7 @@ export default function QuizSectionOperations({
                   exit={{ opacity: 0, y: -10 }}
                   className="flex items-center gap-2 text-emerald-600 text-sm"
                 >
-                  <CheckCircle2 className="h-4 w-4" /> Saved. You can refine
-                  this later.
+                  <CheckCircle2 className="h-4 w-4" /> Saved. You can refine this later.
                 </motion.div>
               )}
             </AnimatePresence>
