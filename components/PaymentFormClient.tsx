@@ -57,7 +57,7 @@ export default function PaymentFormClient() {
       key:      process.env.NEXT_PUBLIC_RAZORPAY_KEY!,
       amount,
       currency: "INR",
-      name:     "Your App Name",
+      name:     "WytMode",
       order_id: orderId,
       handler:  onRazorpaySuccess,
       prefill:  { name: "", email: "" },
